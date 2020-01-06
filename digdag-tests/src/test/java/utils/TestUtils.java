@@ -32,8 +32,8 @@ import io.netty.handler.codec.http.HttpObject;
 import io.netty.handler.codec.http.HttpRequest;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
-import okhttp3.internal.tls.SslClient;
 import okhttp3.mockwebserver.MockWebServer;
+import okhttp3.tls.HandshakeCertificates;
 import org.apache.commons.io.FileUtils;
 import org.hamcrest.BaseMatcher;
 import org.hamcrest.Description;
@@ -51,6 +51,7 @@ import org.subethamail.smtp.AuthenticationHandlerFactory;
 import org.subethamail.smtp.RejectException;
 import org.subethamail.wiser.Wiser;
 
+import javax.net.ssl.SSLSocketFactory;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -65,7 +66,6 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Duration;
 import java.time.Instant;
-import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAmount;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -93,6 +93,7 @@ import static io.netty.handler.codec.http.HttpResponseStatus.INTERNAL_SERVER_ERR
 import static java.nio.charset.StandardCharsets.UTF_8;
 import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import static java.util.Arrays.asList;
+import static okhttp3.tls.internal.TlsUtil.localhost;
 import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.Matchers.is;
 import static org.junit.Assert.assertThat;
@@ -493,19 +494,19 @@ public class TestUtils
         copyResource(resource, project.resolve(workflowName));
     }
 
-    public static void runWorkflow(TemporaryFolder folder, String resource, Map<String, String> params)
+    public static CommandStatus runWorkflow(TemporaryFolder folder, String resource, Map<String, String> params)
             throws IOException
     {
-        runWorkflow(folder, resource, params, ImmutableMap.of());
+        return runWorkflow(folder, resource, params, ImmutableMap.of());
     }
 
-    public static void runWorkflow(TemporaryFolder folder, String resource, Map<String, String> params, Map<String, String> config)
+    public static CommandStatus runWorkflow(TemporaryFolder folder, String resource, Map<String, String> params, Map<String, String> config)
             throws IOException
     {
-        runWorkflow(folder, resource, params, config, 0);
+        return runWorkflow(folder, resource, params, config, 0);
     }
 
-    public static void runWorkflow(TemporaryFolder folder, String resource, Map<String, String> params, Map<String, String> config, int expectedStatus)
+    public static CommandStatus runWorkflow(TemporaryFolder folder, String resource, Map<String, String> params, Map<String, String> config, int expectedStatus)
             throws IOException
     {
         Path workflow = Paths.get(resource);
@@ -526,6 +527,7 @@ public class TestUtils
             copyResource(resource, file);
             CommandStatus status = main(runCommand);
             assertThat(status.errUtf8(), status.code(), is(expectedStatus));
+            return status;
         }
         finally {
             FileUtils.deleteQuietly(tempdir.toFile());
@@ -621,18 +623,21 @@ public class TestUtils
 
     public static MockWebServer startMockWebServer(boolean https)
     {
-        MockWebServer server = new MockWebServer();
-        server.setDispatcher(new NopDispatcher());
-        if (https) {
-            server.useHttps(SslClient.localhost().socketFactory, false);
-        }
         try {
+            MockWebServer server = new MockWebServer();
+            server.setDispatcher(new NopDispatcher());
+            if (https) {
+                HandshakeCertificates handshakeCertificates = localhost();
+                SSLSocketFactory socketFactory = handshakeCertificates.sslSocketFactory();
+                server.useHttps(socketFactory, false);
+
+            }
             server.start(0);
+            return server;
         }
         catch (IOException e) {
             throw Throwables.propagate(e);
         }
-        return server;
     }
 
     public static HttpProxyServer startRequestTrackingProxy(final List<FullHttpRequest> requests)

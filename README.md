@@ -8,12 +8,14 @@
 
 Please check [digdag.io](https://digdag.io) and [docs.digdag.io](https://docs.digdag.io) for installation & user manual.
 
+REST API document is available at [docs.digdag.io/api](http://docs.digdag.io/api/).
+
 ## Development
 
 ### Prerequirements
 
 * JDK 8
-* Node.js 8.x
+* Node.js 12.x
 
 Installing Node.js using nodebrew:
 
@@ -21,8 +23,8 @@ Installing Node.js using nodebrew:
 $ curl -L git.io/nodebrew | perl - setup
 $ echo 'export PATH=$HOME/.nodebrew/current/bin:$PATH' >> ~/.bashrc
 $ source ~/.bashrc
-$ nodebrew install-binary v8.x
-$ nodebrew use v8.x
+$ nodebrew install-binary v12.x
+$ nodebrew use v12.x
 ```
 
 Installing Node.js using Homebrew on Mac OS X:
@@ -35,18 +37,6 @@ $ brew install node
   * sphinx
   * sphinx_rtd_theme
   * recommonmark
-
-### Check Digdag REST API
-
-Use `--enable-swagger` option to check the current Digdag REST API.
-
-```
-$ ./gradlew cli
-$ ./pkg/digdag-<current version>.jar server --memory --enable-swagger # Run server with --enable-swagger option
-
-$ docker run -dp 8080:8080 swaggerapi/swagger-ui # Run Swagger-UI on different console
-$ open http://localhost:8080/?url=http://localhost:65432/api/swagger.json # Open api/swagger.json on Swagger-UI
-```
 
 ### Running tests
 
@@ -86,14 +76,31 @@ It makes an executable in `pkg/`, e.g. `pkg/digdag-$VERSION.jar`.
 ### Releasing a new version
 
 You need to set Bintray user name and API key in `BINTRAY_USER` and `BINTRAY_KEY` environment variables.
+In the following instructions, assumed that `upstream` is set to `treasure-data/digdag` and `origin` is set to your private repository.
 
-1. run `git pull origin --tags`.
-2. run `./gradlew setVersion -Pto=<version>` command.
-3. write release notes to `releases/release-<version>.rst` file. It must include at least version (the first line) and release date (the last line).
-4. run `./gradlew clean cli site check releaseCheck`.
-5. if it succeeded, run `./gradlew release`.
+1. run `git pull upstream master --tags`.
+1. run `./gradlew setVersion -Pto=<version>` command.
+1. write release notes to `releases/release-<version>.rst` file. It must include at least version (the first line) and release date (the last line).
+1. run `./gradlew clean cli site check releaseCheck`.
+1. make a release branch. `git checkout -b release_v<version>` and commit.
+1. push the release branch to origin and create a PR.
+1. after the PR is merged to master, checkout master and pull latest upstream/master.
+1. run `./gradlew clean cli site check releaseCheck` again.
+1. if it succeeded, run `./gradlew release`.
+1. a few minutes later, run `digdag selfupdate` and confirm the version.
 
 If major version is incremented, also update `version =` and `release =` at [digdag-docs/src/conf.py](digdag-docs/src/conf.py).
+
+If you are expert, skip 5. to 7. and directly update master branch.
+
+### Post-process of new release
+
+You also need following steps after new version has been released.
+
+1. create a tag `git tag -a v<version>` and push `git push upstream v<version>`
+1. create a release in [GitHub releases](https://github.com/treasure-data/digdag/releases).
+1. create next snapshot version, run `./gradlew setVersion -Pto=<next-version>-SNAPSHOT`.
+1. push to master.
 
 
 ### Releasing a SNAPSHOT version
@@ -101,7 +108,6 @@ If major version is incremented, also update `version =` and `release =` at [dig
 ```
 ./gradlew releaseSnapshot
 ```
-
 
 ### Develop digdag-ui
 
@@ -125,6 +131,23 @@ $ npm install
 $ npm run dev    # starts dev server on http://localhost:9000/
 ```
 
+### Updating REST API document
+
+Run this command to update REST API document file at digdag-docs/src/api/swagger.yaml.
+
+```
+./gradlew swaggerYaml  # dump swagger.yaml file
+```
+
+Use `--enable-swagger` option to check the current Digdag REST API.
+
+```
+$ ./gradlew cli
+$ ./pkg/digdag-<current version>.jar server --memory --enable-swagger # Run server with --enable-swagger option
+
+$ docker run -dp 8080:8080 swaggerapi/swagger-ui # Run Swagger-UI on different console
+$ open http://localhost:8080/?url=http://localhost:65432/api/swagger.json # Open api/swagger.json on Swagger-UI
+```
 
 ### Updating documents
 
@@ -132,10 +155,20 @@ Documents are in digdag-docs/src directory. They're built using Sphinx.
 
 Website is hosted on [www.digdag.io](http://www.digdag.io) using Github Pages. Pages are built using deployment step of circle.yml and automatically pushed to [gh-pages branch of digdag-docs repository](https://github.com/treasure-data/digdag-docs/tree/gh-pages).
 
-To build the pages and check them locally, run following command:
+To build the pages and check them locally, follow this instruction.
+
+Create a virtual environment of Python and install dependent Python libraries including Sphinx.
 
 ```
-$ ./gradlew site
+$ python3 -m venv .venv
+$ source .venv/bin/activate
+(.venv)$ pip install -r digdag-docs/requirements.txt -c digdag-docs/constraints.txt
+```
+
+After installation of Python libraries, You can build with running the following command:
+
+```
+(.venv)$ ./gradlew site
 ```
 
 This might not always update all necessary files (Sphinx doesn't manage update dependencies well). In this case, run `./gradlew clean` first.
@@ -153,7 +186,7 @@ The list of release note is [here](https://github.com/treasure-data/digdag/tree/
 Digdag is using a Java annotation processor `org.immutables:value.` The combination of Java annotation processing and Gradle on IntelliJ IDEA sometimes introduces some troubles. In Digdag's case, you may run into some compile errors like `cannot find symbol: class ImmutableRestWorkflowDefinitionCollection.`
 So we'd recommend the followings to avoid those compile errors if you want to develop Digdag one the IDE.
 
-1. There's an important configuration option to be enabled to fully have IntelliJ be fully integrated with an existing gradle build configuration: `Delegate IDE build/run actions to gradle` needs to be enabled. 
+1. There's an important configuration option to be enabled to fully have IntelliJ be fully integrated with an existing gradle build configuration: `Delegate IDE build/run actions to gradle` needs to be enabled.
 
 ![](https://user-images.githubusercontent.com/17990895/48221255-9706be80-e35f-11e8-8283-1ca6d713e31c.png)
 

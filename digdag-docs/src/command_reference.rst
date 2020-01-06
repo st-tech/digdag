@@ -115,9 +115,11 @@ Options:
   Add a session parameter (use multiple times to set many parameters) in KEY=VALUE syntax. This parameter is available using ``${...}`` syntax in the YAML file, or using language API.
 
   Example: ``-p environment=staging``
+  
+  Note: Variable defined in _export is not overwritable by --param option.
 
 :command:`-P, --params-file PATH`
-  Read parameters from a YAML file. Nested parameter (like {mysql: {user: me}}) are accessible using "." syntax (like \${mysql.user}).
+  Read parameters from a YAML/JSON file. Nested parameter (like {mysql: {user: me}}) are accessible using "." syntax (like \${mysql.user}).
 
   Example: ``-P params.yml``
 
@@ -156,6 +158,8 @@ Shows workflow definitions and schedules. "c" is alias of check command. Example
   Overwrite a parameter (use multiple times to set many parameters) in KEY=VALUE syntax. This parameter is available using ``${...}`` syntax in the YAML file, or using language API.
 
   Example: ``-p environment=staging``
+  
+  Note: Variable defined in _export is not overwritable by --param option.
 
 :command:`-P, --params-file PATH`
   Read parameters from a YAML file. Nested parameter (like {mysql: {user: me}}) are accessible using "." syntax (like \${mysql.user}).
@@ -212,6 +216,8 @@ Runs a workflow scheduler that runs schedules periodically. This picks up all wo
   Add a session parameter (use multiple times to set many parameters) in KEY=VALUE syntax. This parameter is available using ``${...}`` syntax in the YAML file, or using language API.
 
   Example: ``-p environment=staging``
+  
+  Note: Variable defined in _export is not overwritable by --param option.
 
 :command:`-P, --params-file PATH`
   Read parameters from a YAML file. Nested parameter (like {mysql: {user: me}}) are accessible using "." syntax (like \${mysql.user}).
@@ -235,7 +241,7 @@ Updates the executable binary file to the latest version or specified version. E
 .. code-block:: console
 
     $ digdag selfupdate
-    $ digdag selfupdate 0.9.33
+    $ digdag selfupdate 0.9.40
 
 Server-mode commands
 ----------------------------------
@@ -271,7 +277,7 @@ Runs a digdag server. --memory or --database option is required. Examples:
   Example: ``--database digdag``
 
 :command:`-m, --memory`
-  Store status in memory. Data will be removed when the server exists.
+  Store status in memory. Data will be removed when the server exits.
 
   Example: ``--memory``
 
@@ -304,10 +310,19 @@ Runs a digdag server. --memory or --database option is required. Examples:
 
   Example: ``--disable-executor-loop``
 
+:command:`--disable-scheduler`
+  Disable a schedule executor on this server.
+
+  This option is useful when you want to disable all schedules without modifying workflow files. See also ``--disable-executor-loop`` option.
+
+  Example: ``--disable-scheduler``
+
 :command:`-p, --param KEY=VALUE`
   Add a session parameter (use multiple times to set many parameters) in KEY=VALUE syntax. This parameter is available using ``${...}`` syntax in the YAML file, or using language API.
 
   Example: ``-p environment=staging``
+  
+  Note: Variable defined in _export is not overwritable by --param option.
 
 :command:`-P, --params-file PATH`
   Read parameters from a YAML file. Nested parameter (like {mysql: {user: me}}) are accessible using "." syntax (like \${mysql.user}).
@@ -315,9 +330,9 @@ Runs a digdag server. --memory or --database option is required. Examples:
   Example: ``-P params.yml``
 
 :command:`-c, --config PATH`
-  Server configuration property path. See the followings for details.
+  Configuration file to load. (default: ~/.config/digdag/config) See the followings for details.
 
-  Example: ``-c digdag.properties``
+  Example: ``-c digdag-server/server.properties``
 
 
 In the config file, following parameters are available
@@ -336,6 +351,7 @@ In the config file, following parameters are available
 * server.http.enable-http2 (enable HTTP/2. default: false)
 * server.http.headers.KEY = VALUE (HTTP header to set on API responses)
 * server.jmx.port (port to listen JMX in integer. default: JMX is disabled)
+* server.authenticator-class (string) The FQCN of the ``io.digdag.spi.Authenticator`` implementation to use. The implementation is to be provided by a system plugin. The auth plugin configuration is implementation specific. Default: ``io.digdag.standards.auth.jwt.JwtAuthenticator``
 * database.type (enum, "h2" or "postgresql")
 * database.user (string)
 * database.password (string)
@@ -349,14 +365,19 @@ In the config file, following parameters are available
 * database.idleTimeout (seconds in integer, default: 600)
 * database.validationTimeout (seconds in integer, default: 5)
 * database.maximumPoolSize (integer, default: available CPU cores * 32)
-* archive.type (type of project archiving, "db" or "s3". default: "db")
+* database.leakDetectionThreshold (HikariCP leakDetectionThreshold milliseconds in integer. default: 0. To enable, set to >= 2000.)
+* database.migrate (enable DB migration. default: true)
+* archive.type (type of project archiving, "db", "s3" or "gcs". default: "db")
 * archive.s3.endpoint (string. default: "s3.amazonaws.com")
 * archive.s3.bucket (string)
 * archive.s3.path (string)
 * archive.s3.credentials.access-key-id (string. default: instance profile)
 * archive.s3.credentials.secret-access-key (string. default: instance profile)
 * archive.s3.path-style-access (boolean. default: false)
-* log-server.type (type of log storage, "local" , "null", or "s3". default: "null". This parameter will be overwritten with "local" if ``-O, --task-log DIR`` is set.)
+* archive.gcs.bucket (string)
+* archive.gcs.credentials.json.path (string. if not set, auth with local authentication information. Also if path and content are set, path has priority.)
+* archive.gcs.credentials.json.content (string. if not set, auth with local authentication information. Also if path and content are set, path has priority.)
+* log-server.type (type of log storage, "local" , "null", "s3" or "gcs". default: "null". This parameter will be overwritten with "local" if ``-O, --task-log DIR`` is set.)
 * log-server.s3.endpoint (string, default: "s3.amazonaws.com")
 * log-server.s3.bucket (string)
 * log-server.s3.path (string)
@@ -364,11 +385,35 @@ In the config file, following parameters are available
 * log-server.s3.credentials.access-key-id (string. default: instance profile)
 * log-server.s3.credentials.secret-access-key (string. default: instance profile)
 * log-server.s3.path-style-access (boolean. default: false)
+* log-server.gcs.bucket (string)
+* log-server.gcs.credentials.json.path (string. if not set, auth with local authentication information. Also if path and content are set, path has priority.)
+* log-server.gcs.credentials.json.content (string. if not set, auth with local authentication information. Also if path and content are set, path has priority.)
+* log-server.local.path (string. default: digdag.log)
+* log-server.local.split_size (long. max log file size in bytes(uncompressed).  default: 0  (not splitted))
 * digdag.secret-encryption-key = (base64 encoded 128-bit AES encryption key)
 * executor.task_ttl (string. default: 1d. A task is killed if it is running longer than this period.)
 * executor.attempt_ttl (string. default: 7d. An attempt is killed if it is running longer than this period.)
 * api.max_attempts_page_size (integer. The max number of rows of attempts in api response)
 * api.max_sessions_page_size (integer. The max number of rows of sessions in api response)
+* api.max_archive_total_size_limit (integer. The maximum size of an archived project. i.e. ``digdag push`` size. default: 2MB(2\*1024\*1024))
+
+Authenticator Plugins
+*********************
+
+**Basic Auth**
+
+Enabled by setting the config parameter ``server.authenticator-class`` to ``io.digdag.standards.auth.basic.BasicAuthenticator``.
+
+Configuration:
+
+* basicauth.username (string) *required*
+* basicauth.password (string) *required*
+* basicauth.admin (boolean) optional, default ``false``
+
+
+**Jwt**
+
+Undocumented.
 
 
 Secret Encryption Key
@@ -381,7 +426,9 @@ Example:
 .. code-block:: none
 
   digdag.secret-encryption-key = MDEyMzQ1Njc4OTAxMjM0NQ==
-
+  # example
+  echo -n '16_bytes_phrase!' | openssl base64
+  MTZfYnl0ZXNfcGhyYXNlIQ==
 
 Client-mode commands
 ----------------------------------
@@ -396,15 +443,21 @@ Client-mode common options:
 :command:`-H, --header KEY=VALUE`
   Add a custom HTTP header. Use multiple times to set multiple headers.
 
+:command:`--basic-auth <user:pass>`
+  Add an Authorization header with the provided username and password.
+
 :command:`-c, --config PATH`
   Configuration file to load. (default: ~/.config/digdag/config)
 
   Example: ``-c digdag-server/client.properties``
 
+
+
 You can include following parameters in ~/.config/digdag/config file:
 
 * client.http.endpoint = http://HOST:PORT or https://HOST:PORT
 * client.http.headers.KEY = VALUE (set custom HTTP header)
+* client.http.disable_direct_download=true (disable direct download in `log` and `download`. effect to server v0.10.0(not yet released) or later.)
 
 
 start
@@ -444,6 +497,8 @@ Starts a new session. This command requires project name, workflow name, and ses
   Add a session parameter (use multiple times to set many parameters) in KEY=VALUE syntax. This parameter is available using ``${...}`` syntax in the YAML file, or using language API.
 
   Example: ``-p environment=staging``
+  
+  Note: Variable defined in _export is not overwritable by --param option.
 
 :command:`-P, --params-file PATH`
   Read parameters from a YAML file. Nested parameter (like {mysql: {user: me}}) are accessible using "." syntax (like \${mysql.user}).
@@ -531,6 +586,20 @@ Kills a session attempt. Examples:
     $ digdag kill 32
 
 
+projects
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: console
+
+    $ digdag projects [name]
+
+Shows list of projects or details of a project. Examples:
+
+.. code-block:: console
+
+    $ digdag projects
+    $ digdag projects myproj
+
 workflows
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -557,11 +626,58 @@ schedules
 Shows list of schedules.
 
 
+disable
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: console
+
+    $ digdag disable [project-name]
+
+Disable all workflow schedules in a project.
+
+.. code-block:: console
+
+    $ digdag disable [schedule-id]
+    $ digdag disable [project-name] [name]
+
+Disable a workflow schedule.
+
+.. code-block:: console
+
+    $ digdag disable <schedule-id>
+    $ digdag disable myproj
+    $ digdag disable myproj main
+
+
+enable
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: console
+
+    $ digdag enable [project-name]
+
+Enable all workflow schedules in a project.
+
+.. code-block:: console
+
+    $ digdag enable [schedule-id]
+    $ digdag enable [project-name] [name]
+
+Enable a workflow schedule.
+
+.. code-block:: console
+
+    $ digdag enable <schedule-id>
+    $ digdag enable myproj
+    $ digdag enable myproj main
+
+
 backfill
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: console
 
+    $ digdag backfill <schedule-id>
     $ digdag backfill <project-name> <name>
 
 Starts sessions of a schedule for past session times.
@@ -591,8 +707,9 @@ reschedule
 .. code-block:: console
 
     $ digdag reschedule <schedule-id>
+    $ digdag reschedule <project-name> <name>
 
-Skips schedule forward to a future time. To run past schedules, use backfill instead.
+Skips a workflow schedule forward to a future time. To run past schedules, use backfill instead.
 
 :command:`-s, --skip N`
   Skips specified number of schedules from now. This number "N" doesn't mean number of sessions to be skipped. "N" is the number of sessions to be skipped.
@@ -628,26 +745,51 @@ Shows list of sessions. This command shows only the latest attempts of sessions 
 :command:`-s, --page-size N`
   Shows more sessions of the number of N (in default up to 100).
 
+session
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: console
+
+    $ digdag session [session-id]
+
+Show a single session. Examples:
+
+.. code-block:: console
+
+    $ digdag session <session-id>
+
 attempts
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 .. code-block:: console
 
-    $ digdag attempts [project-name] [+name]
+    $ digdag attempts [session-id]
 
 Shows list of attempts. This command shows all attempts including attempts retried by another attempt. Examples:
 
 .. code-block:: console
 
     $ digdag attempts
-    $ digdag attempts myproj
-    $ digdag attempts myproj +main
+    $ digdag attempts <session-id>
 
 :command:`-i, --last-id ID`
   Shows more attempts older than this id.
 
 :command:`-s, --page-size N`
   Shows more attempts of the number of N (in default up to 100).
+
+attempt
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: console
+
+    $ digdag attempt [attempt-id]
+
+Shows a single attempt. Examples:
+
+.. code-block:: console
+
+    $ digdag attempt <attempt-id>
 
 tasks
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -731,6 +873,9 @@ Deletes a project. Sessions of the deleted project are kept retained so that we 
 .. code-block:: console
 
     $ digdag delete myproj
+
+:command:`--force`
+  Skip y/N prompt
 
 secrets
 ~~~~~~~
@@ -816,6 +961,15 @@ The above command sets the local secret `foo`.
     $ digdag secrets --local --delete foo bar
 
 The above command deletes the local secrets `foo` and `bar`.
+
+version
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+.. code-block:: console
+
+    $ digdag version
+
+Show client and server version.
 
 Common options
 ----------------------------------

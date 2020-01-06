@@ -11,6 +11,7 @@ import io.digdag.cli.StdOut;
 import io.digdag.cli.SystemExitException;
 import io.digdag.cli.YamlMapper;
 import io.digdag.client.config.Config;
+import io.digdag.client.config.ConfigElement;
 import io.digdag.client.config.ConfigFactory;
 import io.digdag.core.DigdagEmbed;
 import io.digdag.core.config.ConfigLoaderManager;
@@ -58,10 +59,14 @@ public class Archive
     private void archive()
             throws Exception
     {
+        ConfigElement systemConfig = ConfigElement.fromJson("{ \"database.migrate\" : false } }");
+
         try (DigdagEmbed digdag = new DigdagEmbed.Bootstrap()
+                .setSystemConfig(systemConfig)
                 .withWorkflowExecutor(false)
                 .withScheduleExecutor(false)
                 .withLocalAgent(false)
+                .withTaskQueueServer(false)
                 .addModules(binder -> {
                     binder.bind(YamlMapper.class).in(Scopes.SINGLETON);
                     binder.bind(Archiver.class).in(Scopes.SINGLETON);

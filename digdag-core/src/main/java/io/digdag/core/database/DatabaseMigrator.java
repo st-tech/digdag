@@ -1,21 +1,23 @@
 package io.digdag.core.database;
 
+import com.google.common.annotations.VisibleForTesting;
 import com.google.inject.Inject;
 import org.skife.jdbi.v2.DBI;
 import org.skife.jdbi.v2.Handle;
 import org.skife.jdbi.v2.exceptions.StatementException;
 
-import java.util.Comparator;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Set;
+import java.util.*;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import io.digdag.core.database.migrate.*;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 public class DatabaseMigrator
 {
+    private static final Logger logger = LoggerFactory.getLogger(DatabaseMigrator.class);
+
     private final List<Migration> migrations = Stream.of(new Migration[] {
         new Migration_20151204221156_CreateTables(),
         new Migration_20160602123456_SessionsOnProjectIdIndexToDesc(),
@@ -36,6 +38,7 @@ public class DatabaseMigrator
         new Migration_20170116082921_AddAttemptIndexColumn1(),
         new Migration_20170116090744_AddAttemptIndexColumn2(),
         new Migration_20170223220127_AddLastSessionTimeAndFlagsToSessions(),
+        new Migration_20190318175338_AddIndexToSessionAttempts(),
     })
     .sorted(Comparator.comparing(m -> m.getVersion()))
     .collect(Collectors.toList());
@@ -49,7 +52,7 @@ public class DatabaseMigrator
         this(dbi, config.getType());
     }
 
-    public DatabaseMigrator(DBI dbi, String databaseType)
+    DatabaseMigrator(DBI dbi, String databaseType)
     {
         this.dbi = dbi;
         this.databaseType = databaseType;
@@ -76,78 +79,131 @@ public class DatabaseMigrator
         }
     }
 
-    private static enum NextStatus
+    public int migrate()
     {
-        RUN_ALL,
-        FINISHED,
-        MORE;
+        int numApplied = 0;
+        MigrationContext context = new MigrationContext(databaseType);
+        Set<String> appliedSet;
+        try (Handle handle = dbi.open()) {
+            boolean isInitial = !existsSchemaMigrationsTable(handle);
+            if (isInitial) {
+                createSchemaMigrationsTable(handle, context);
+            }
+            appliedSet = getAppliedMigrationNames(handle);
+        }
+        for (Migration m : migrations) {
+            if (appliedSet.add(m.getVersion())) {
+                if (applyMigrationIfNotDone(context, m)) {
+                    numApplied++;
+                }
+            }
+        }
+        if (numApplied > 0) {
+            if (context.isPostgres()) {
+                logger.info("{} migrations applied.", numApplied);
+            }
+            else {
+                logger.debug("{} migrations applied.", numApplied);
+            }
+        }
+        return numApplied;
     }
 
-    public void migrate()
+    // add "synchronized" so that multiple threads don't run the same migration on the same database
+    private synchronized boolean applyMigrationIfNotDone(MigrationContext context, Migration m)
     {
-        MigrationContext context = new MigrationContext(databaseType);
-
-        while (true) {
-            NextStatus status;
-
-            try (Handle handle = dbi.open()) {
-                status = handle.inTransaction((h, session) -> {
-                    Set<String> appliedSet;
-
-                    try {
-                        if (context.isPostgres()) {
-                            // lock tables not to run migration concurrently.
-                            // h2 doesn't support table lock.
-                            h.update("LOCK TABLE schema_migrations IN EXCLUSIVE MODE");
-                        }
-
-                        appliedSet = new HashSet<>(
-                                handle.createQuery("select name from schema_migrations")
-                                .mapTo(String.class)
-                                .list());
-                    }
-                    catch (StatementException ex) {
-                        // schema_migrations table does not exist. this is the initial run
-                        // including local mode. apply everything at once.
-                        return NextStatus.RUN_ALL;
-                    }
-
-                    for (Migration m : migrations) {
-                        if (appliedSet.add(m.getVersion())) {
-                            System.out.println("applying " + m.getVersion() + " set: " + appliedSet);
-                            applyMigration(m, h, context);
-                            // use isolated transaction for each migration script to avoid long lock.
-                            return NextStatus.MORE;
-                        }
-                    }
-
-                    return NextStatus.FINISHED;
-                });
-            }
-
-            switch (status) {
-            case FINISHED:
-                return;
-
-            case RUN_ALL:
-                try (Handle handle = dbi.open()) {
-                    handle.inTransaction((h, session) -> {
-                        createSchemaMigrationsTable(h, context);
-                        for (Migration m : migrations) {
-                            applyMigration(m, h, context);
-                        }
+        // recreate Handle for each time to be able to discard pg_advisory_lock.
+        try (Handle handle = dbi.open()) {
+            if (m.noTransaction(context)) {
+                // Advisory lock if available -> migrate
+                if (context.isPostgres()) {
+                    handle.select("SELECT pg_advisory_lock(23299, 0)");
+                    // re-check migration status after lock
+                    if (!checkIfMigrationApplied(handle, m.getVersion())) {
+                        logger.info("Applying database migration:" + m.getVersion());
+                        applyMigration(m, handle, context);
                         return true;
-                    });
+                    }
+                    return false;
                 }
-                break;
+                else {
+                    // h2 doesn't support table lock and it's unnecessary because of synchronized
+                    logger.debug("Applying database migration:" + m.getVersion());
+                    applyMigration(m, handle, context);
+                    return true;
+                }
 
-            case MORE:
-                // pass-through
+            }
+            else {
+                // Start transaction -> Lock table -> Re-check migration status -> migrate
+                return handle.inTransaction((h, session) -> {
+                    if (context.isPostgres()) {
+                        // lock tables not to run migration concurrently.
+                        h.update("LOCK TABLE schema_migrations IN EXCLUSIVE MODE");
+                        // re-check migration status after lock
+                        if (!checkIfMigrationApplied(h, m.getVersion())) {
+                            logger.info("Applying database migration:" + m.getVersion());
+                            applyMigration(m, handle, context);
+                            return true;
+                        }
+                        return false;
+                    }
+                    else {
+                        // h2 doesn't support table lock and it's unnecessary because of synchronized
+                        logger.debug("Applying database migration:" + m.getVersion());
+                        applyMigration(m, handle, context);
+                        return true;
+                    }
+                });
             }
         }
     }
 
-    private void createSchemaMigrationsTable(Handle handle, MigrationContext context)
+    // Called from cli migrate
+
+    /**
+     * Called from cli migrate
+     * @return no applicated migrations.
+     */
+    public List<Migration> getApplicableMigration()
+    {
+        List<Migration> applicableMigrations = new ArrayList<>();
+        MigrationContext context = new MigrationContext(databaseType);
+        try (Handle handle = dbi.open()) {
+            boolean isInitial = !existsSchemaMigrationsTable(handle);
+            if (isInitial) {
+                return applicableMigrations;
+            }
+
+            Set<String> appliedSet = getAppliedMigrationNames(handle);
+            for (Migration m : migrations) {
+                if (!appliedSet.contains(m.getVersion())) {
+                    applicableMigrations.add(m);
+                }
+            }
+        }
+        return applicableMigrations;
+    }
+
+    private Set<String> getAppliedMigrationNames(Handle handle)
+    {
+        return new HashSet<>(
+                handle.createQuery("select name from schema_migrations")
+                .mapTo(String.class)
+                .list());
+    }
+
+    private boolean checkIfMigrationApplied(Handle handle, String name)
+    {
+        return handle.createQuery("select name from schema_migrations where name = :name limit 1")
+            .bind("name", name)
+            .mapTo(String.class)
+            .list()
+            .size() > 0;
+    }
+
+    @VisibleForTesting
+    public void createSchemaMigrationsTable(Handle handle, MigrationContext context)
     {
         handle.update(
                 context.newCreateTableBuilder("schema_migrations")
@@ -156,9 +212,37 @@ public class DatabaseMigrator
                 .build());
     }
 
-    private void applyMigration(Migration m, Handle handle, MigrationContext context)
+    // Called from cli migrate
+    public boolean existsSchemaMigrationsTable()
+    {
+        try (Handle handle = dbi.open()) {
+            return existsSchemaMigrationsTable(handle);
+        }
+    }
+
+    private boolean existsSchemaMigrationsTable(Handle handle)
+    {
+        try {
+            handle.createQuery("select name from schema_migrations limit 1")
+                    .mapTo(String.class)
+                    .list();
+            return true;
+        }
+        catch( RuntimeException re) {
+            return false;
+        }
+    }
+
+    @VisibleForTesting
+    public void applyMigration(Migration m, Handle handle, MigrationContext context)
     {
         m.migrate(handle, context);
         handle.insert("insert into schema_migrations (name, created_at) values (?, now())", m.getVersion());
+    }
+
+    @VisibleForTesting
+    public String getDatabaseType()
+    {
+        return databaseType;
     }
 }

@@ -8,7 +8,7 @@ apt-get -y install maven
 
 # npm
 apt-get -y install curl
-curl -sL https://deb.nodesource.com/setup_8.x | bash -
+curl -sL https://deb.nodesource.com/setup_12.x | bash -
 apt-get -y install nodejs
 
 # Docker required by CircleCI to execute docker command in Docker container
@@ -28,16 +28,18 @@ sudo -u postgres createuser -s digdag_test
 sudo -u postgres createdb -O digdag_test digdag_test
 
 # Python
-apt-get -y install python python-pip python-dev
-pip install pip --upgrade && hash -r pip # rehashed https://github.com/pypa/pip/issues/5240
-# Using sphinx==1.4.9 because sphinx_rtd_theme with sphinx 1.5.x has a problem with search and its fix is not released: https://github.com/snide/sphinx_rtd_theme/pull/346
-pip install sphinx==1.4.9 recommonmark sphinx_rtd_theme
+apt-get -y install python3 python3-pip
+python3 -m pip install -U pip
+python3 -m pip install -r requirements.txt -c constraints.txt
+
+# Ruby
+apt-get -y install ruby-full
 
 # Redis
 apt-get -y install redis-server
 
 # Minio (S3)
-wget -O /usr/local/bin/minio https://dl.minio.io/server/minio/release/linux-amd64/minio
+wget -O /usr/local/bin/minio https://dl.minio.io/server/minio/release/linux-amd64/archive/minio.RELEASE.2019-01-23T23-18-58Z
 chmod 777 /usr/local/bin/minio
 
 # Redis

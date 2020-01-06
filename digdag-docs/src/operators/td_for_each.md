@@ -18,13 +18,15 @@ For example, if you run a query `select email, name from users` and the query re
 
 ## Secrets
 
+When you set those parameters, use [digdag secrets command](https://docs.digdag.io/command_reference.html#secrets).
+
 * **td.apikey**: API_KEY
 
   The Treasure Data API key to use when running Treasure Data queries.
 
 ## Options
 
-* **td>**: FILE.sql
+* **td_for_each>**: FILE.sql
 
   Path to a query template file. This file can contain `${...}` syntax to embed variables.
 
@@ -70,6 +72,12 @@ For example, if you run a query `select email, name from users` and the query re
 
   Set Priority (From `-2` (VERY LOW) to `2` (VERY HIGH) , default: 0 (NORMAL)).
 
+* **job_retry**: 0
+
+  Set automatic job retry count (default: 0).
+
+  We recommend that you not set retry count over 10. If the job is not succeessful less than 10 times retry, it needs some fix a cause of failure.
+
 * **presto_pool_name**: NAME
 
   Name of a resource pool to run the query in.
@@ -93,10 +101,20 @@ For example, if you run a query `select email, name from users` and the query re
   pool_name: poc
   ```
 
+* **engine_version**: NAME
+
+  Specify engine version for Hive and Presto.
+
+  Examples:
+
+  ```
+  engine: hive
+  engine_version: stable
+  ```
+
 ## Output parameters
 
-* **td.last_job_id**
-* **td.last_job.id**
+* **td.last_job_id** or **td.last_job.id**
 
   The job id this task executed.
 

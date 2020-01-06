@@ -9,6 +9,14 @@
     +simple_query:
       td>: queries/simple_query.sql
 
+    +simple_query_expanded:
+      td>:
+        data: "SELECT '${session_id}' FROM nasdaq"
+
+    +simple_query_nonexpanded:
+      td>:
+      query: "SELECT * FROM nasdaq"
+
     +create_new_table_using_result_of_select:
       td>: queries/select_sql.sql
       create_table: mytable_${session_date_compact}
@@ -34,6 +42,8 @@
 
 ## Secrets
 
+When you set those parameters, use [digdag secrets command](https://docs.digdag.io/command_reference.html#secrets).
+
 * **td.apikey**: API_KEY
 
   The Treasure Data API key to use when running Treasure Data queries.
@@ -48,6 +58,50 @@
 
   ```
   td>: queries/step1.sql
+  ```
+
+* **data**: query
+
+  A query can be passed as a string.
+  (Note that this is actually not an option; this needs indent)
+
+  Examples:
+
+  ```
+  td>:
+    data: "SELECT * FROM nasdaq"
+  ```
+
+* **query**: query template
+
+  A query template. This string can contain `${...}` syntax to embed variables.
+
+  Examples:
+
+  ```
+  # Activate some customers to mail
+  _export:
+    database: project_a
+
+  # This API returns following JSON, which has comments to track Presto Jobs and Workflows.
+  # It contains a query whose condition is unfortunately dynamically decided...
+  # ("dynamicaly" means it's not decided when they pushes this workflow)
+  # {"query":"-- https://console.treasuredata.com/app/workflows/sessions/${session_id}\n-- ${task_name}\nSELECT * FROM customers WHERE ..."}
+  +get_queries
+    http>: http://example.com/get_queries
+    store_content: true
+
+  # doesn't expand given string
+  +td_data:
+    td>:
+      data: ${JSON.parse(http.last_content)["query"]}
+    result_connection: mail_something
+
+  # it expands given string
+  +td_query:
+    td>:
+    query: ${JSON.parse(http.last_content)["query"]}
+    result_connection: mail_something
   ```
 
 * **create_table**: NAME
@@ -150,6 +204,12 @@
 
   Set Priority (From `-2` (VERY LOW) to `2` (VERY HIGH) , default: 0 (NORMAL)).
 
+* **job_retry**: 0
+
+  Set automatic job retry count (default: 0).
+
+  We recommend that you not set retry count over 10. If the job is not succeessful less than 10 times retry, it needs some fix a cause of failure.
+
 * **result_connection**: NAME
 
   Use a connection to write the query results to an external system.
@@ -206,10 +266,20 @@
   hive_pool_name: poc
   ```
 
+* **engine_version**: NAME
+
+  Specify engine version for Hive and Presto.
+
+  Examples:
+
+  ```
+  engine: hive
+  engine_version: stable
+  ```
+
 ## Output parameters
 
-* **td.last_job_id**
-* **td.last_job.id**
+* **td.last_job_id** or **td.last_job.id**
 
   The job id this task executed.
 

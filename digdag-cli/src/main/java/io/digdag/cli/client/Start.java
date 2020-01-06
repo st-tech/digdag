@@ -16,6 +16,7 @@ import io.digdag.client.api.RestWorkflowDefinition;
 import io.digdag.client.api.RestWorkflowSessionTime;
 import io.digdag.client.api.SessionTimeTruncate;
 import io.digdag.client.config.Config;
+import io.digdag.client.config.ConfigElement;
 import io.digdag.client.config.ConfigFactory;
 import io.digdag.core.DigdagEmbed;
 import io.digdag.core.config.ConfigLoaderManager;
@@ -91,10 +92,14 @@ public class Start
     private void start(String projName, String workflowName)
         throws Exception
     {
+        ConfigElement systemConfig = ConfigElement.fromJson("{ \"database.migrate\" : false } }");
+
         Injector injector = new DigdagEmbed.Bootstrap()
+            .setSystemConfig(systemConfig)
             .withWorkflowExecutor(false)
             .withScheduleExecutor(false)
             .withLocalAgent(false)
+            .withTaskQueueServer(false)
             .addModules(binder -> {
                 binder.bind(ConfigLoaderManager.class).in(Scopes.SINGLETON);
             })

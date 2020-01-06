@@ -20,6 +20,8 @@ Note: The **bq>** operator uses [standard SQL](https://cloud.google.com/bigquery
 
 ## Secrets
 
+When you set those parameters, use [digdag secrets command](https://docs.digdag.io/command_reference.html#secrets).
+
 * **gcp.credential**: CREDENTIAL
 
   The [Google Cloud Platform account](https://cloud.google.com/docs/authentication#user_accounts_and_service_accounts) credential private key to use, in JSON format.
@@ -155,7 +157,6 @@ Note: The **bq>** operator uses [standard SQL](https://cloud.google.com/bigquery
 
 ## Output parameters
 
-* **bq.last_job_id**
+* **bq.last_job_id** or **bq.last_jobid**
 
-  The id of the BigQuery job that executed this query.
-
+  The id of the BigQuery job that executed this query. `bq.last_jobid` will be kept for compatibility and remove in near future release.

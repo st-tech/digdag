@@ -72,8 +72,11 @@ import io.digdag.core.repository.ResourceConflictException;
 import io.digdag.core.repository.ResourceNotFoundException;
 import io.digdag.core.repository.Revision;
 import io.digdag.core.repository.StoredProject;
+import io.digdag.core.repository.StoredProjectWithRevision;
 import io.digdag.core.repository.StoredRevision;
 import io.digdag.core.repository.StoredWorkflowDefinition;
+import io.digdag.core.repository.WorkflowDefinition;
+import io.digdag.core.repository.WorkflowDefinitionList;
 import io.digdag.core.schedule.ScheduleStore;
 import io.digdag.core.schedule.ScheduleStoreManager;
 import io.digdag.core.schedule.SchedulerManager;
@@ -82,7 +85,9 @@ import io.digdag.core.session.SessionStore;
 import io.digdag.core.session.SessionStoreManager;
 import io.digdag.core.session.StoredSessionWithLastAttempt;
 import io.digdag.core.storage.ArchiveManager;
+import io.digdag.core.workflow.Workflow;
 import io.digdag.core.workflow.WorkflowCompiler;
+import io.digdag.core.workflow.WorkflowTask;
 import io.digdag.server.GenericJsonExceptionHandler;
 import io.digdag.spi.DirectDownloadHandle;
 import io.digdag.spi.SecretControlStore;
@@ -93,6 +98,8 @@ import io.digdag.spi.StorageFileNotFoundException;
 import io.digdag.spi.StorageObject;
 import io.digdag.util.Md5CountInputStream;
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
+import io.swagger.annotations.ApiParam;
 import org.apache.commons.compress.archivers.tar.TarArchiveEntry;
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
@@ -157,8 +164,11 @@ public class ProjectResource
     // GET  /api/projects/{id}/workflow?name=name&revision=name    # lookup a workflow of a past revision of a project by name
 
     private static final Logger logger = LoggerFactory.getLogger(ProjectResource.class);
-    private static final int ARCHIVE_TOTAL_SIZE_LIMIT = 2 * 1024 * 1024;
-    private static final int ARCHIVE_FILE_SIZE_LIMIT = ARCHIVE_TOTAL_SIZE_LIMIT;
+    private static int MAX_ARCHIVE_TOTAL_SIZE_LIMIT;
+    private static final int DEFAULT_ARCHIVE_TOTAL_SIZE_LIMIT = 2 * 1024 * 1024;
+    // TODO: we may want to limit bytes of one file for `MAX_ARCHIVE_FILE_SIZE_LIMIT ` in the future instead of total size limit.
+    // See also: https://github.com/treasure-data/digdag/pull/994#discussion_r258402647
+    private static int MAX_ARCHIVE_FILE_SIZE_LIMIT;
     private static int MAX_SESSIONS_PAGE_SIZE;
     private static final int DEFAULT_SESSIONS_PAGE_SIZE = 100;
 
@@ -204,6 +214,8 @@ public class ProjectResource
         this.scsp = scsp;
         this.projectArchiveLoader = projectArchiveLoader;
         MAX_SESSIONS_PAGE_SIZE = systemConfig.get("api.max_sessions_page_size", Integer.class, DEFAULT_SESSIONS_PAGE_SIZE);
+        MAX_ARCHIVE_TOTAL_SIZE_LIMIT = systemConfig.get("api.max_archive_total_size_limit", Integer.class, DEFAULT_ARCHIVE_TOTAL_SIZE_LIMIT);
+        MAX_ARCHIVE_FILE_SIZE_LIMIT = MAX_ARCHIVE_TOTAL_SIZE_LIMIT;
     }
 
     private static StoredProject ensureNotDeletedProject(StoredProject proj)
@@ -217,8 +229,11 @@ public class ProjectResource
         return proj;
     }
 
+    // /<singular> style is deprecated. Use /api/projects with filter instead
+    @Deprecated
     @GET
     @Path("/api/project")
+    @ApiOperation("(deprecated)")
     public RestProject getProject(@QueryParam("name") String name)
             throws ResourceNotFoundException
     {
@@ -234,7 +249,10 @@ public class ProjectResource
 
     @GET
     @Path("/api/projects")
-    public RestProjectCollection getProjects(@QueryParam("name") String name)
+    @ApiOperation("List projects with filters")
+    public RestProjectCollection getProjects(
+            @ApiParam(value="exact matching filter on project name", required=false)
+            @QueryParam("name") String name)
     {
         return tm.begin(() -> {
             ProjectStore ps = rm.getProjectStore(getSiteId());
@@ -251,19 +269,11 @@ public class ProjectResource
                 }
             }
             else {
-                // TODO fix n-m db access
-                collection = ps.getProjects(100, Optional.absent())
+                collection = ps.getProjectsWithLatestRevision(100, Optional.absent())
                         .stream()
-                        .map(proj -> {
-                            try {
-                                StoredRevision rev = ps.getLatestRevision(proj.getId());
-                                return RestModels.project(proj, rev);
-                            }
-                            catch (ResourceNotFoundException ex) {
-                                return null;
-                            }
+                        .map(projWithRev -> {
+                            return RestModels.project(projWithRev);
                         })
-                        .filter(proj -> proj != null)
                         .collect(Collectors.toList());
             }
 
@@ -273,7 +283,10 @@ public class ProjectResource
 
     @GET
     @Path("/api/projects/{id}")
-    public RestProject getProject(@PathParam("id") int projId)
+    @ApiOperation("Get a project")
+    public RestProject getProject(
+            @ApiParam(value="project id", required=false)
+            @PathParam("id") int projId)
             throws ResourceNotFoundException
     {
         return tm.begin(() -> {
@@ -286,7 +299,14 @@ public class ProjectResource
 
     @GET
     @Path("/api/projects/{id}/revisions")
-    public RestRevisionCollection getRevisions(@PathParam("id") int projId, @QueryParam("last_id") Integer lastId)
+    @ApiOperation("List revisions of a project")
+    public RestRevisionCollection getRevisions(
+            @PathParam("id") int projId,
+            // last_id exists but impossible to use for pagination purpose because
+            // RestRevision doesn't return id. This is a REST API design bug. No
+            // clients can use this parameter appropriately.
+            @ApiParam(value="deprecated - do not use")
+            @QueryParam("last_id") Integer lastId)
             throws ResourceNotFoundException
     {
         return tm.begin(() -> {
@@ -297,8 +317,11 @@ public class ProjectResource
         }, ResourceNotFoundException.class);
     }
 
+    // /<singular> style is deprecated. Use /api/projects/{id}/workflows with filter instead
+    @Deprecated
     @GET
     @Path("/api/projects/{id}/workflow")
+    @ApiOperation("(deprecated)")
     public RestWorkflowDefinition getWorkflow(@PathParam("id") int projId, @QueryParam("name") String name, @QueryParam("revision") String revName)
             throws ResourceNotFoundException
     {
@@ -331,9 +354,13 @@ public class ProjectResource
 
     @GET
     @Path("/api/projects/{id}/workflows")
+    @ApiOperation("List workflows of a project with filters")
     public RestWorkflowDefinitionCollection getWorkflows(
+            @ApiParam(value="project id", required=true)
             @PathParam("id") int projId,
+            @ApiParam(value="use a given revision of the project instead of the latest revision", required=true)
             @QueryParam("revision") String revName,
+            @ApiParam(value="exact matching filter on workflow name", required=false)
             @QueryParam("name") String name)
             throws ResourceNotFoundException
     {
@@ -368,10 +395,14 @@ public class ProjectResource
     }
 
     @GET
+    @ApiOperation("List schedules of a project with filters")
     @Path("/api/projects/{id}/schedules")
     public RestScheduleCollection getSchedules(
+            @ApiParam(value="project id", required=true)
             @PathParam("id") int projectId,
+            @ApiParam(value="exact matching filter on workflow name", required=false)
             @QueryParam("workflow") String workflowName,
+            @ApiParam(value="list schedules whose id is grater than this id for pagination", required=false)
             @QueryParam("last_id") Integer lastId)
             throws ResourceNotFoundException
     {
@@ -401,11 +432,16 @@ public class ProjectResource
     }
 
     @GET
+    @ApiOperation("List sessions of a project with filters")
     @Path("/api/projects/{id}/sessions")
     public RestSessionCollection getSessions(
+            @ApiParam(value="project id", required=true)
             @PathParam("id") int projectId,
+            @ApiParam(value="exact matching filter on workflow name", required=false)
             @QueryParam("workflow") String workflowName,
+            @ApiParam(value="list sessions whose id is grater than this id for pagination", required=false)
             @QueryParam("last_id") Long lastId,
+            @ApiParam(value="number of sessions to return", required=false)
             @QueryParam("page_size") Integer pageSize)
             throws ResourceNotFoundException
     {
@@ -431,7 +467,12 @@ public class ProjectResource
     @GET
     @Path("/api/projects/{id}/archive")
     @Produces("application/gzip")
-    public Response getArchive(@PathParam("id") int projId, @QueryParam("revision") String revName)
+    @ApiOperation("Download a project archive file")
+    public Response getArchive(
+            @ApiParam(value="project id", required=true)
+            @PathParam("id") int projId,
+            @ApiParam(value="use a given revision of a project instead of the latest revision", required=true)
+            @QueryParam("revision") String revName)
             throws ResourceNotFoundException
     {
         return tm.begin(() -> {
@@ -489,6 +530,7 @@ public class ProjectResource
 
     @DELETE
     @Path("/api/projects/{id}")
+    @ApiOperation("Delete a project")
     public RestProject deleteProject(@PathParam("id") int projId)
             throws ResourceNotFoundException
     {
@@ -504,8 +546,15 @@ public class ProjectResource
     @PUT
     @Consumes("application/gzip")
     @Path("/api/projects")
-    public RestProject putProject(@QueryParam("project") String name, @QueryParam("revision") String revision,
-            InputStream body, @HeaderParam("Content-Length") long contentLength,
+    @ApiOperation("Upload a project archive as a new project or a new revision of an existing project")
+    public RestProject putProject(
+            @ApiParam(value="project name", required=true)
+            @QueryParam("project") String name,
+            @ApiParam(value="revision", required=true)
+            @QueryParam("revision") String revision,
+            InputStream body,
+            @HeaderParam("Content-Length") long contentLength,
+            @ApiParam(value="start scheduling of new workflows from the given time instead of current time", required=false)
             @QueryParam("schedule_from") String scheduleFromString)
             throws ResourceConflictException, IOException, ResourceNotFoundException
     {
@@ -526,10 +575,10 @@ public class ProjectResource
                 }
             }
 
-            if (contentLength > ARCHIVE_TOTAL_SIZE_LIMIT) {
+            if (contentLength > MAX_ARCHIVE_TOTAL_SIZE_LIMIT) {
                 throw new IllegalArgumentException(String.format(ENGLISH,
                         "Size of the uploaded archive file exceeds limit (%d bytes)",
-                        ARCHIVE_TOTAL_SIZE_LIMIT));
+                        MAX_ARCHIVE_TOTAL_SIZE_LIMIT));
             }
             int size = (int) contentLength;
 
@@ -544,6 +593,8 @@ public class ProjectResource
                     if (md5Count.getCount() != contentLength) {
                         throw new IllegalArgumentException("Content-Length header doesn't match with uploaded data size");
                     }
+
+                    validateWorkflowAndSchedule(meta);
                 }
 
                 ArchiveManager.Location location =
@@ -627,10 +678,10 @@ public class ProjectResource
                 totalSize = extractConfigFiles(dir.get(), archive);
             }
 
-            if (totalSize > ARCHIVE_TOTAL_SIZE_LIMIT) {
+            if (totalSize > MAX_ARCHIVE_TOTAL_SIZE_LIMIT) {
                 throw new IllegalArgumentException(String.format(ENGLISH,
                             "Total size of the archive exceeds limit (%d > %d bytes)",
-                            totalSize, ARCHIVE_TOTAL_SIZE_LIMIT));
+                            totalSize, MAX_ARCHIVE_TOTAL_SIZE_LIMIT));
             }
 
             ProjectArchive archive = projectArchiveLoader.load(dir.get(), WorkflowResourceMatcher.defaultMatcher(), cf.create());
@@ -669,17 +720,43 @@ public class ProjectResource
 
     private void validateTarEntry(TarArchiveEntry entry)
     {
-        if (entry.getSize() > ARCHIVE_FILE_SIZE_LIMIT) {
+        if (entry.getSize() > MAX_ARCHIVE_FILE_SIZE_LIMIT) {
             throw new IllegalArgumentException(String.format(ENGLISH,
                         "Size of a file in the archive exceeds limit (%d > %d bytes): %s",
-                        entry.getSize(), ARCHIVE_FILE_SIZE_LIMIT, entry.getName()));
+                        entry.getSize(), MAX_ARCHIVE_FILE_SIZE_LIMIT, entry.getName()));
+        }
+    }
+
+    private void validateWorkflowAndSchedule(ArchiveMetadata meta)
+    {
+        WorkflowDefinitionList defs = meta.getWorkflowList();
+        for (WorkflowDefinition def : defs.get()) {
+            Workflow wf = compiler.compile(def.getName(), def.getConfig());
+
+            // validate workflow and schedule
+            for (WorkflowTask task : wf.getTasks()) {
+                // raise an exception if task doesn't valid.
+                task.getConfig();
+            }
+            Revision rev = Revision.builderFromArchive("check", meta, getUserInfo())
+                    .archiveType(ArchiveType.NONE)
+                    .build();
+            // raise an exception if "schedule:" is invalid.
+            srm.tryGetScheduler(rev, def);
+
         }
     }
 
     @PUT
     @Consumes("application/json")
     @Path("/api/projects/{id}/secrets/{key}")
-    public void putProjectSecret(@PathParam("id") int projectId, @PathParam("key") String key, RestSetSecretRequest request)
+    @ApiOperation("Set a secret to a project")
+    public void putProjectSecret(
+            @ApiParam(value="project id", required=true)
+            @PathParam("id") int projectId,
+            @ApiParam(value="secret key", required=true)
+            @PathParam("key") String key,
+            RestSetSecretRequest request)
             throws ResourceNotFoundException
     {
         tm.begin(() -> {
@@ -701,7 +778,12 @@ public class ProjectResource
 
     @DELETE
     @Path("/api/projects/{id}/secrets/{key}")
-    public void deleteProjectSecret(@PathParam("id") int projectId, @PathParam("key") String key)
+    @ApiOperation("Delete a secret from a project")
+    public void deleteProjectSecret(
+            @ApiParam(value="project id", required=true)
+            @PathParam("id") int projectId,
+            @ApiParam(value="secret key", required=true)
+            @PathParam("key") String key)
             throws ResourceNotFoundException
     {
         tm.begin(() -> {
@@ -724,7 +806,10 @@ public class ProjectResource
     @GET
     @Path("/api/projects/{id}/secrets")
     @Produces("application/json")
-    public RestSecretList getProjectSecrets(@PathParam("id") int projectId)
+    @ApiOperation("List secret keys of a project")
+    public RestSecretList getProjectSecrets(
+            @ApiParam(value="project id", required=true)
+            @PathParam("id") int projectId)
             throws ResourceNotFoundException
     {
         return tm.begin(() -> {

@@ -37,7 +37,7 @@ Key names starting with ``+`` sign is a task. Tasks run from the top to bottom i
 operators>
 ----------------------------------
 
-A task with ``type>: command`` or ``_type: NAME`` parameter executes an action. You can choose various kinds of operators such as `running shell scripts <operators.html#sh-shell-scripts>`_, `Python methods <operators.html#py-python-scripts>`_, `sending email <operators.html#mail-sending-email>`_, etc. See `Operators <operators.html>`_ page for the list of built-in operators.
+A task with ``type>: command`` or ``_type: NAME`` parameter executes an action. You can choose various kinds of operators such as `running shell scripts <operators/sh.html>`_, `Python methods <operators/py.html>`_, `sending email <operators/mail.html>`_, etc. See `Operators <operators.html>`_ page for the list of built-in operators.
 
 .. note::
 
@@ -55,6 +55,7 @@ Here is the list of built-in variables:
 Name                            Description                                 Example
 =============================== =========================================== ==========================
 **timezone**                    Timezone of this workflow                   America/Los_Angeles
+**project_id**                  The project ID of this workflow             12345
 **session_uuid**                Unique UUID of this session                 414a8b9e-b365-4394-916a-f0ed9987bd2b
 **session_id**                  Integer ID of this session                  2381
 **session_time**                Time of this session with time zone         2016-01-30T00:00:00-08:00
@@ -78,6 +79,8 @@ Name                                 Example (hourly schedule)  Example (daily s
 **last_session_local_time**          2016-01-29 23:00:00        2016-01-29 00:00:00
 **last_session_tz_offset**           -0800                      -0800
 **last_session_unixtime**            1454137200                 1454054400
+**last_executed_session_time**       2016-01-29T23:00:00-08:00  2016-01-29T00:00:00-08:00
+**last_executed_session_unixtime**   1454137200                 1454054400
 **next_session_time**                2016-01-30T01:00:00-08:00  2016-01-31T00:00:00-08:00
 **next_session_date**                2016-01-30                 2016-01-31
 **next_session_date_compact**        20160130                   20160131
@@ -87,6 +90,7 @@ Name                                 Example (hourly schedule)  Example (daily s
 ==================================== ========================== ==========================
 
 last_session_time is the timestamp of the last schedule. If the schedule is hourly, it's the last hour. If the schedule is daily, it's yesterday. It doesn't matter whether the last schedule actually ran or not. It's simply set to the last timestamp calculated from the current session time.
+last_executed_session_time variable is the previously executed session time.
 
 Calculating variables
 ----------------------------------
@@ -258,7 +262,7 @@ If ``_background: true`` parameter is set to a task or group, the task or group 
 Retrying failed tasks automatically
 -----------------------------------
 
-If ``_retry: N`` (N is an integer: 1, 2, 3, ...) parameter is set to a group, it retires the group from the beginning when one or more children failed.
+If ``_retry: N`` (N is an integer: 1, 2, 3, ...) parameter is set to a group, it retries the group from the beginning when one or more children failed.
 
 .. code-block:: yaml
 
@@ -280,7 +284,7 @@ If ``_retry: N`` (N is an integer: 1, 2, 3, ...) parameter is set to a group, it
       sh>: tasks/analyze_prepared_data_sets.sh
 
 
-Tasks also support ``_retry: N`` parameter to retry the specific task. Note that some operators don't support the generic ``_retry`` option but has its own options to control retrying behavior.
+Tasks also support ``_retry: N`` parameter to retry the specific task. Note that some operators don't support the generic ``_retry`` option but have their own options to control retrying behavior. Operators that involve external systems may reuse previous results. To ensure an external task is repeated, you may use ``_retry`` at the group level.
 
 You can set interval to _retry as follows.
 
@@ -316,5 +320,5 @@ If an operator configuration is set at ``_error:`` parameter, the operator runs 
     +analyze:
       sh>: tasks/analyze_prepared_data_sets.sh
 
-To send mails, you can use `mail> operator <operators.html#mail-sending-email>`_.
+To send mails, you can use `mail> operator <operators/mail.html>`_.
 

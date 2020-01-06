@@ -39,6 +39,8 @@ _export:
 
 ## Secrets
 
+When you set those parameters, use [digdag secrets command](https://docs.digdag.io/command_reference.html#secrets).
+
 * **aws.redshift.password**: NAME
 
   Optional user password to use when connecting to the Redshift database. If you want to use multiple credentials, use `password_override` option.
@@ -171,6 +173,7 @@ _export:
 
   Whether this operator uses a strict transaction to prevent generating unexpected duplicated records just in case. *Default*: `true`.
   This operator creates and uses a status table in the database to make an operation idempotent. But if creating a table isn't allowed, this option should be false.
+  If the query that created the status table completed 24 hours ago, this operator drop the table in the cleanup step.
 
   Examples:
 

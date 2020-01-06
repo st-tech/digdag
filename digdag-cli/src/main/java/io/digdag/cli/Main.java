@@ -30,6 +30,7 @@ import io.digdag.cli.client.ShowSchedule;
 import io.digdag.cli.client.ShowSession;
 import io.digdag.cli.client.ShowTask;
 import io.digdag.cli.client.ShowWorkflow;
+import io.digdag.cli.client.ShowProjects;
 import io.digdag.cli.client.Start;
 import io.digdag.cli.client.Upload;
 import io.digdag.cli.client.Version;
@@ -133,6 +134,7 @@ public class Main
         jc.addCommand("upload", injector.getInstance(Upload.class));
         jc.addCommand("download", injector.getInstance(Download.class));
 
+        jc.addCommand("project", injector.getInstance(ShowProjects.class), "projects");
         jc.addCommand("workflow", injector.getInstance(ShowWorkflow.class), "workflows");
         jc.addCommand("start", injector.getInstance(Start.class));
         jc.addCommand("retry", injector.getInstance(Retry.class));
@@ -150,6 +152,8 @@ public class Main
         jc.addCommand("delete", injector.getInstance(Delete.class));
         jc.addCommand("secrets", injector.getInstance(Secrets.class), "secret");
         jc.addCommand("version", injector.getInstance(Version.class), "version");
+        jc.addCommand("migrate", injector.getInstance(Migrate.class));
+
 
         jc.addCommand("selfupdate", injector.getInstance(SelfUpdate.class));
 
@@ -297,6 +301,7 @@ public class Main
         err.println("    r[un] <workflow.dig>               run a workflow");
         err.println("    c[heck]                            show workflow definitions");
         err.println("    sched[uler]                        run a scheduler server");
+        err.println("    migrate (run|check)                migrate database");
         err.println("    selfupdate                         update cli to the latest version");
         err.println("");
         err.println("  Server-mode commands:");
@@ -308,9 +313,12 @@ public class Main
         err.println("    start <project-name> <name>        start a new session attempt of a workflow");
         err.println("    retry <attempt-id>                 retry a session");
         err.println("    kill <attempt-id>                  kill a running session attempt");
+        err.println("    backfill <schedule-id>             start sessions of a schedule for past times");
         err.println("    backfill <project-name> <name>     start sessions of a schedule for past times");
-        err.println("    reschedule                         skip sessions of a schedule to a future time");
+        err.println("    reschedule <schedule-id>           skip sessions of a schedule to a future time");
+        err.println("    reschedule <project-name> <name>   skip sessions of a schedule to a future time");
         err.println("    log <attempt-id>                   show logs of a session attempt");
+        err.println("    projects [name]                    show projects");
         err.println("    workflows [project-name] [name]    show registered workflow definitions");
         err.println("    schedules                          show registered schedules");
         err.println("    disable <schedule-id>              disable a workflow schedule");
@@ -333,6 +341,8 @@ public class Main
         err.println("");
         err.println("  Options:");
         showCommonOptions(env, err);
+        err.println("  Client options:");
+        showClientCommonOptions(err);
         if (error == null) {
             err.println("Use `<command> --help` to see detailed usage of a command.");
             return systemExit(null);
@@ -348,6 +358,18 @@ public class Main
         err.println("    -l, --log-level LEVEL            log level (error, warn, info, debug or trace)");
         err.println("    -X KEY=VALUE                     add a performance system config");
         err.println("    -c, --config PATH.properties     Configuration file (default: " + defaultConfigPath(env) + ")");
+        err.println("    --version                        show client version");
         err.println("");
     }
+
+    public static void showClientCommonOptions(PrintStream err)
+    {
+        err.println("    -e, --endpoint URL               Server endpoint (default: http://127.0.0.1:65432)");
+        err.println("    -H, --header  KEY=VALUE          Additional headers");
+        err.println("    --disable-version-check          Disable server version check");
+        err.println("    --disable-cert-validation        Disable certificate verification");
+        err.println("    --basic-auth <user:pass>         Add an Authorization header with the provided username and password");
+        err.println("");
+    }
+
 }

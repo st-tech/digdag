@@ -17,9 +17,11 @@
 
 ## Secrets
 
+When you set those parameters, use [digdag secrets command](https://docs.digdag.io/command_reference.html#secrets).
+
 * **gcp.credential**: CREDENTIAL
 
-  See [gcp.credential](../bq.html#secrets).
+  See [gcp.credential](bq.html#secrets).
 
 ## Options
 
@@ -99,7 +101,6 @@
 
 ## Output parameters
 
-* **bq.last_job_id**
+* **bq.last_job_id** or **bq.last_jobid**
 
-  The id of the BigQuery job that performed this export.
-
+  The id of the BigQuery job that performed this export. `bq.last_jobid` will be kept for compatibility and remove in near future release.

@@ -1,6 +1,6 @@
 # td_wait>: Waits for data arriving at Treasure Data table
 
-**td_wait>** operator runs a query periodically until it returns true. This operator can use more complex query compared to [td_wait_table> operator](../td_wait_table.html).
+**td_wait>** operator runs a query periodically until it returns true. This operator can use more complex query compared to [td_wait_table> operator](td_wait_table.html).
 
     _export:
       td:
@@ -19,6 +19,8 @@ Example queries:
     select count(*) > 1000 from target_table where TD_TIME_RANGE(time, '${last_session_time}')
 
 ## Secrets
+
+When you set those parameters, use [digdag secrets command](https://docs.digdag.io/command_reference.html#secrets).
 
 * **td.apikey**: API_KEY
 
@@ -68,9 +70,19 @@ Example queries:
   engine: presto
   ```
 
+* **interval**: 30s
+
+  Set Interval (default: 30s (30 second)).
+
 * **priority**: 0
 
   Set Priority (From `-2` (VERY LOW) to `2` (VERY HIGH) , default: 0 (NORMAL)).
+
+* **job_retry**: 0
+
+  Set automatic job retry count (default: 0).
+
+  We recommend that you not set retry count over 10. If the job is not succeessful less than 10 times retry, it needs some fix a cause of failure.
 
 * **presto_pool_name**: NAME
 
@@ -95,10 +107,20 @@ Example queries:
   hive_pool_name: poc
   ```
 
+* **engine_version**: NAME
+
+  Specify engine version for Hive and Presto.
+
+  Examples:
+
+  ```
+  engine: hive
+  engine_version: stable
+  ```
+
 ## Output parameters
 
-* **td.last_job_id**
-* **td.last_job.id**
+* **td.last_job_id** or **td.last_job.id**
 
   The job id this task executed.
 

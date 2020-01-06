@@ -40,6 +40,8 @@ import io.digdag.spi.ScheduleTime;
 import io.digdag.spi.Scheduler;
 import io.digdag.client.api.*;
 import io.swagger.annotations.Api;
+import io.swagger.annotations.ApiOperation;
+import io.swagger.annotations.ApiParam;
 import org.apache.commons.compress.compressors.gzip.GzipCompressorInputStream;
 import org.apache.commons.compress.archivers.ArchiveInputStream;
 import org.apache.commons.compress.archivers.ArchiveEntry;
@@ -77,8 +79,11 @@ public class WorkflowResource
         this.tm = tm;
     }
 
+    // /<singular> style is deprecated. Use /api/workflows with filter instead
+    @Deprecated
     @GET
     @Path("/api/workflow")
+    @ApiOperation("(deprecated)")
     public RestWorkflowDefinition getWorkflowDefinition(
             @QueryParam("project") String projName,
             @QueryParam("revision") String revName,
@@ -105,8 +110,11 @@ public class WorkflowResource
 
     @GET
     @Path("/api/workflows")
+    @ApiOperation("List workflows")
     public RestWorkflowDefinitionCollection getWorkflowDefinitions(
+            @ApiParam(value="list workflows whose id is grater than this id for pagination", required=false)
             @QueryParam("last_id") Long lastId,
+            @ApiParam(value="number of workflows to return", required=false)
             @QueryParam("count") Integer count)
             throws ResourceNotFoundException
     {
@@ -120,7 +128,10 @@ public class WorkflowResource
 
     @GET
     @Path("/api/workflows/{id}")
-    public RestWorkflowDefinition getWorkflowDefinition(@PathParam("id") long id)
+    @ApiOperation("Get a workflow")
+    public RestWorkflowDefinition getWorkflowDefinition(
+            @ApiParam(value="workflow id", required=true)
+            @PathParam("id") long id)
             throws ResourceNotFoundException
     {
         return tm.begin(() -> {
@@ -133,9 +144,13 @@ public class WorkflowResource
 
     @GET
     @Path("/api/workflows/{id}/truncated_session_time")
+    @ApiOperation("Get truncated local time based on the time zone of a workflow")
     public RestWorkflowSessionTime getWorkflowDefinition(
+            @ApiParam(value="workflow id", required=true)
             @PathParam("id") long id,
+            @ApiParam(value="session time to be truncated", required=true)
             @QueryParam("session_time") LocalTimeOrInstant localTime,
+            @ApiParam(value="truncation mode - second, minute, hour, day, schedule, or next_schedule", required=false)
             @QueryParam("mode") SessionTimeTruncate mode)
             throws ResourceNotFoundException
     {

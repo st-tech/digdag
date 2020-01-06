@@ -16,6 +16,8 @@ NOTE: We're limiting export capability to only us-east region S3 bucket. In gene
 
 ## Secrets
 
+When you set those parameters, use [digdag secrets command](https://docs.digdag.io/command_reference.html#secrets).
+
 * **td.apikey**: API_KEY
 
   The Treasure Data API key to use when running Treasure Data table exports.
@@ -125,8 +127,7 @@ NOTE: We're limiting export capability to only us-east region S3 bucket. In gene
 
 ## Output parameters
 
-* **td.last_job_id**
-* **td.last_job.id**
+* **td.last_job_id** or **td.last_job.id**
 
   The job id this task executed.
 

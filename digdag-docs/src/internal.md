@@ -58,6 +58,7 @@ When Digdag runs as a server, it has 3 major thread pools:
 By default, `digdag server` runs all of them. There're some options to disable the components:
 
 * ``--disable-executor-loop`` disables workflow executor and schedule executor.
+* ``--disable-scheduler`` disables schedule executor.
 * ``--disable-local-agent`` disables agent.
 
 API server, workflow executor, and schedule executor use database (H2 or PostgreSQL) to communicate each other.
@@ -84,7 +85,7 @@ Storage (`io.digdag.spi.Storage`) is a plugin interface that is used to store ta
 
 S3Storage is a storage implementation that stores files on Amazon S3.
 
-Storage is injected using Extension mechanism (see bellow).
+Storage is injected using Extension mechanism (see below).
 
 
 ## Command executor
@@ -113,7 +114,7 @@ Extension needs least code to make some extension possible. But it's the hardest
 
 A typical use case is for system integrators to customize digdag for their internal use.
 
-Many of customization points in digdag are assuming Extension to override (e.g. `io.digdag.server.Authenticator`) because it needs less code. But for ease of use, they should also accept system plugins, eventually.
+Many of customization points in digdag are assuming Extension to override (i.e. most of what's bound using guice) because it needs less code. But for ease of use, they should also accept system plugins, eventually.
 
 
 ### System plugins
