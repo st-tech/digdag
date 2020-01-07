@@ -8,6 +8,7 @@ import io.digdag.client.config.ConfigElement;
 import io.digdag.client.config.ConfigFactory;
 import io.digdag.core.config.ConfigLoaderManager;
 import io.digdag.core.config.PropertyUtils;
+import io.digdag.core.plugin.PluginSet;
 import io.digdag.core.config.YamlConfigLoader;
 import io.digdag.server.ServerBootstrap;
 import io.digdag.server.ServerConfig;
@@ -118,11 +119,11 @@ public class Server
         err.println("        --disable-executor-loop      disable workflow executor loop");
         err.println("        --disable-scheduler          disable scheduler");
         err.println("        --disable-local-agent        disable local task execution");
-        err.println("        --enable-swagger             enable swagger api");
+        err.println("        --enable-swagger             enable swagger api. Do not use in production because CORS");
+        err.println("                                     is also enabled on from any domains with all HTTP methods");
         err.println("    -p, --param KEY=VALUE            overwrites a parameter (use multiple times to set many parameters)");
         err.println("    -H, --header KEY=VALUE           a header to include in api HTTP responses");
         err.println("    -P, --params-file PATH.yml       reads parameters from a YAML file");
-        err.println("    -c, --config PATH.properties     server configuration property path");
         Main.showCommonOptions(env, err);
         return systemExit(error);
     }
@@ -134,7 +135,7 @@ public class Server
         Properties props = buildServerProperties();
         ConfigElement ce = PropertyUtils.toConfigElement(props);
         ServerConfig serverConfig = ServerConfig.convertFrom(ce);
-        ServerBootstrap.start(buildServerBootstrap(version, serverConfig));
+        ServerBootstrap.start(buildServerBootstrap(version, serverConfig, loadSystemPlugins(props)));
     }
 
     protected Properties buildServerProperties()
@@ -214,8 +215,8 @@ public class Server
         return props;
     }
 
-    protected ServerBootstrap buildServerBootstrap(final Version version, final ServerConfig serverConfig)
+    protected ServerBootstrap buildServerBootstrap(final Version version, final ServerConfig serverConfig, PluginSet systemPlugins)
     {
-        return new ServerBootstrap(version, serverConfig);
+        return new ServerBootstrap(version, serverConfig, systemPlugins);
     }
 }

@@ -1,11 +1,13 @@
 package io.digdag.server;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Supplier;
 import com.google.common.collect.ImmutableMap;
 import io.digdag.client.DigdagClient;
 import io.digdag.client.config.Config;
 import io.digdag.client.config.ConfigFactory;
 import io.digdag.spi.AuthenticatedUser;
+import io.digdag.spi.Authenticator;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -109,17 +111,20 @@ public class AuthRequestFilterTest
         reset(containerRequestContext);
 
         // Accept
-        final Config userInfo = CONFIG_FACTORY.create();
-        final Config userContext = CONFIG_FACTORY.create();
-        final Supplier<Map<String, String>> secrets = () -> ImmutableMap.of("secret", "value");
-        final AuthenticatedUser user = AuthenticatedUser.builder()
+        Config userInfo = CONFIG_FACTORY.create();
+        Supplier<Map<String, String>> secrets = () -> ImmutableMap.of("secret", "value");
+        Authenticator.Result acceptance = Authenticator.Result.builder()
                 .siteId(17)
-                .isAdmin(true)
                 .userInfo(userInfo)
-                .userContext(userContext)
+                .secrets(secrets)
+                .isAdmin(true)
+                .authenticatedUser(AuthenticatedUser.builder()
+                      .siteId(17)
+                      .isAdmin(true)
+                      .userInfo(userInfo)
+                      .userContext(CONFIG_FACTORY.create())
+                      .build())
                 .build();
-        final Authenticator.Result acceptance = Authenticator.Result.accept(user, secrets);
-
         when(containerRequestContext.getUriInfo()).thenReturn(uriInfo);
         when(authenticator.authenticate(containerRequestContext)).thenReturn(acceptance);
         when(containerRequestContext.getMethod()).thenReturn(method);
@@ -127,7 +132,9 @@ public class AuthRequestFilterTest
         verify(containerRequestContext).getMethod();
         verify(authenticator).authenticate(containerRequestContext);
         verify(containerRequestContext, never()).abortWith(any(Response.class));
-        verify(containerRequestContext).setProperty("authenticatedUser", user);
+        verify(containerRequestContext).setProperty("siteId", 17);
+        verify(containerRequestContext).setProperty("userInfo", userInfo);
         verify(containerRequestContext).setProperty("secrets", secrets);
+        verify(containerRequestContext).setProperty("admin", true);
     }
 }
