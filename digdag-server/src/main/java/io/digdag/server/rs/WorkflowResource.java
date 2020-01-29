@@ -31,6 +31,7 @@ import io.swagger.annotations.Api;
 import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 
+
 @Api("Workflow")
 @Path("/")
 @Produces("application/json")
@@ -69,6 +70,8 @@ public class WorkflowResource
         this.metrics = metrics;
     }
 
+    // /<singular> style is deprecated. Use /api/workflows with filter instead
+    @Deprecated
     @DigdagTimed(category = "api", appendMethodName = true)
     // /<singular> style is deprecated. Use /api/workflows with filter instead
     @Deprecated

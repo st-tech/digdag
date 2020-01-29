@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.base.Optional;
 import io.digdag.client.config.Config;
 import io.digdag.client.config.ConfigFactory;
+import io.digdag.core.storage.StorageManager;
 import io.digdag.standards.command.kubernetes.KubernetesClientConfig;
 import org.junit.Before;
 import org.junit.Test;
@@ -60,7 +61,16 @@ public class KubernetesClientConfigTest
           .set(KUBERNETES_CLIENT_PARAMS_PREFIX+"test.oauth_token", "test=")
           .set(KUBERNETES_CLIENT_PARAMS_PREFIX+"test.namespace", "default");
 
-        KubernetesClientConfig kubernetesClientConfig = KubernetesClientConfig.createFromSystemConfig(clusterName, systemConfig);
+        final Config kubernetesConfig = cf.create()
+                .set("test.master", "https://127.0.0.1")
+                .set("test.certs_ca_data", "test=")
+                .set("test.oauth_token", "test=")
+                .set("test.namespace", "default");
+
+        final Config requestConfig = cf.create()
+                .setNested("kubernetes", kubernetesConfig);
+
+        KubernetesClientConfig kubernetesClientConfig = KubernetesClientConfig.create(clusterName, systemConfig, null);
 
         String masterUrl = "https://127.0.0.1";
         String namespace = "default";
@@ -80,7 +90,7 @@ public class KubernetesClientConfigTest
           .set("agent.command_executor.type", "kubernetes")
           .set(KUBERNETES_CLIENT_PARAMS_PREFIX+"test.kube_config_path", kubeConfigPath);
 
-        KubernetesClientConfig kubernetesClientConfig = KubernetesClientConfig.createFromSystemConfig(clusterName, systemConfig);
+        KubernetesClientConfig kubernetesClientConfig = KubernetesClientConfig.create(clusterName, systemConfig, null);
 
         String masterUrl = "https://127.0.0.1";
         String namespace = "default";
@@ -91,4 +101,53 @@ public class KubernetesClientConfigTest
         assertThat(oauthToken, is(kubernetesClientConfig.getOauthToken()));
         assertThat(namespace, is(kubernetesClientConfig.getNamespace()));
     }
+
+    @Test
+    public void testCreateFromRequestConfig()
+            throws Exception
+    {
+        final Config kubernetesConfig = cf.create()
+                .set("master", "https://127.0.0.1")
+                .set("certs_ca_data", "test=")
+                .set("oauth_token", "test=")
+                .set("namespace", "default");
+
+        final Config requestConfig = cf.create()
+                .setNested("kubernetes", kubernetesConfig);
+
+        KubernetesClientConfig kubernetesClientConfig = KubernetesClientConfig.create(clusterName, null, requestConfig);
+
+        String masterUrl = "https://127.0.0.1";
+        String namespace = "default";
+        String caCertData = "test=";
+        String oauthToken = "test=";
+        assertThat(masterUrl, is(kubernetesClientConfig.getMaster()));
+        assertThat(caCertData, is(kubernetesClientConfig.getCertsCaData()));
+        assertThat(oauthToken, is(kubernetesClientConfig.getOauthToken()));
+        assertThat(namespace, is(kubernetesClientConfig.getNamespace()));
+    }
+
+    @Test
+    public void testCreateFromRequestConfigWithKubeConfig()
+            throws Exception
+    {
+
+        final Config kubernetesConfig = cf.create()
+                .set("kube_config_path", kubeConfigPath);
+
+        final Config requestConfig = cf.create()
+                .setNested("kubernetes", kubernetesConfig);
+
+        KubernetesClientConfig kubernetesClientConfig = KubernetesClientConfig.create(clusterName, null, requestConfig);
+
+        String masterUrl = "https://127.0.0.1";
+        String namespace = "default";
+        String caCertData = "test=";
+        String oauthToken = "test=";
+        assertThat(masterUrl, is(kubernetesClientConfig.getMaster()));
+        assertThat(caCertData, is(kubernetesClientConfig.getCertsCaData()));
+        assertThat(oauthToken, is(kubernetesClientConfig.getOauthToken()));
+        assertThat(namespace, is(kubernetesClientConfig.getNamespace()));
+    }
+
 }

@@ -63,6 +63,7 @@ import io.digdag.core.repository.ResourceConflictException;
 import io.digdag.core.repository.ResourceNotFoundException;
 import io.digdag.core.repository.Revision;
 import io.digdag.core.repository.StoredProject;
+import io.digdag.core.repository.StoredProjectWithRevision;
 import io.digdag.core.repository.StoredRevision;
 import io.digdag.core.repository.StoredWorkflowDefinition;
 import io.digdag.core.repository.WorkflowDefinition;
@@ -212,6 +213,8 @@ public class ProjectResource
         return proj;
     }
 
+    // /<singular> style is deprecated. Use /api/projects with filter instead
+    @Deprecated
     @DigdagTimed(category = "api", appendMethodName = true)
     // /<singular> style is deprecated. Use /api/projects with filter instead
     @Deprecated
@@ -365,6 +368,8 @@ public class ProjectResource
         }, ResourceNotFoundException.class, AccessControlException.class);
     }
 
+    // /<singular> style is deprecated. Use /api/projects/{id}/workflows with filter instead
+    @Deprecated
     @DigdagTimed(category = "api", appendMethodName = true)
     // /<singular> style is deprecated. Use /api/projects/{id}/workflows with filter instead
     @Deprecated
