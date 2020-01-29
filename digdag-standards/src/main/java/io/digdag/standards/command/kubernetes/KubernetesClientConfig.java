@@ -19,7 +19,7 @@ public class KubernetesClientConfig
             final Config systemConfig,
             final Config requestConfig)
     {
-        if (requestConfig.has("kubernetes")) {
+        if (requestConfig != null && requestConfig.has("kubernetes")) {
             // from task request config
             return KubernetesClientConfig.createFromTaskRequestConfig(name, requestConfig.getNested("kubernetes"));
         }
@@ -29,12 +29,18 @@ public class KubernetesClientConfig
         }
     }
 
+    @VisibleForTesting
     private static KubernetesClientConfig createFromTaskRequestConfig(final Optional<String> name,
             final Config config)
     {
-        // TODO
-        // We'd better to customize cluster config by task request config??
-        throw new UnsupportedOperationException("Not support yet");
+        final String clusterName;
+        if (!name.isPresent()) {
+            clusterName = config.get("name", String.class);
+        }
+        else {
+            clusterName = name.get();
+        }
+        return createKubeConfig(clusterName, config);
     }
 
     @VisibleForTesting
@@ -53,8 +59,12 @@ public class KubernetesClientConfig
         }
         final String keyPrefix = KUBERNETES_CLIENT_PARAMS_PREFIX + clusterName + ".";
         final Config extracted = StorageManager.extractKeyPrefix(systemConfig, keyPrefix);
-        if (extracted.has("kube_config_path")) {
-            String kubeConfigPath = extracted.get("kube_config_path", String.class);
+        return createKubeConfig(clusterName, extracted);
+    }
+
+    private static KubernetesClientConfig createKubeConfig(final String clusterName, final Config config){
+        if (config.has("kube_config_path")) {
+            String kubeConfigPath = config.get("kube_config_path", String.class);
             io.fabric8.kubernetes.client.Config validatedKubeConfig;
             validatedKubeConfig = validateKubeConfig(getKubeConfigFromPath(kubeConfigPath));
             return create(clusterName,
@@ -63,7 +73,7 @@ public class KubernetesClientConfig
                     validatedKubeConfig.getOauthToken(),
                     validatedKubeConfig.getNamespace());
         } else {
-            final Config validatedConfig = validateConfig(extracted);
+            final Config validatedConfig = validateConfig(config);
             return create(clusterName,
                     validatedConfig.get("master", String.class),
                     validatedConfig.get("certs_ca_data", String.class),
