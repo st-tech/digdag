@@ -8,7 +8,6 @@ import io.digdag.spi.CommandContext;
 import io.digdag.spi.CommandRequest;
 import io.fabric8.kubernetes.api.model.Container;
 import io.fabric8.kubernetes.api.model.ContainerBuilder;
-import io.fabric8.kubernetes.api.model.ContainerStatus;
 import io.fabric8.kubernetes.api.model.EnvVar;
 import io.fabric8.kubernetes.api.model.EnvVarBuilder;
 import io.fabric8.kubernetes.api.model.PodSpec;
@@ -93,11 +92,8 @@ public class DefaultKubernetesClient
     @Override
     public boolean isWaitingContainerCreation(final Pod pod)
     {
-        // TODO
-        // We assume that a single container running on a pod. If we will use multiples containers on a pod,
-        // the logic should be changed.
-        final ContainerStatus containerStatus = pod.getStatus().getContainerStatuses().get(0);
-        return containerStatus.getState().getWaiting() != null;
+        boolean isWaitingContainerCreation = pod.getStatus().getContainerStatuses().stream().allMatch(containerStatus -> containerStatus.getState().getWaiting() != null);
+        return isWaitingContainerCreation;
     }
 
     @Override
