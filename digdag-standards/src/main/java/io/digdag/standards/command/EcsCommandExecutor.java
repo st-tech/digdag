@@ -15,11 +15,13 @@ import com.amazonaws.services.ecs.model.Task;
 import com.amazonaws.services.ecs.model.TaskDefinition;
 import com.amazonaws.services.ecs.model.TaskOverride;
 import com.amazonaws.services.ecs.model.TaskSetNotFoundException;
+import com.amazonaws.services.logs.model.AWSLogsException;
 import com.amazonaws.services.logs.model.GetLogEventsResult;
 import com.amazonaws.services.logs.model.OutputLogEvent;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Optional;
 import com.google.common.collect.ImmutableList;
 import com.google.inject.Inject;
@@ -41,6 +43,7 @@ import io.digdag.standards.command.ecs.EcsClientFactory;
 import io.digdag.standards.command.ecs.EcsTaskStatus;
 import io.digdag.standards.command.ecs.TemporalProjectArchiveStorage;
 import io.digdag.util.DurationParam;
+import org.apache.commons.codec.binary.Base64;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -66,6 +69,7 @@ public class EcsCommandExecutor
 
     private static final String ECS_COMMAND_EXECUTOR_SYSTEM_CONFIG_PREFIX = "agent.command_executor.ecs.";
     private static final String DEFAULT_COMMAND_TASK_TTL = ECS_COMMAND_EXECUTOR_SYSTEM_CONFIG_PREFIX + "default_command_task_ttl";
+    private static final String ECS_END_OF_TASK_LOG_MARK = "--RWNzQ29tbWFuZEV4ZWN1dG9y--"; // base64("EcsCommandExecutor")
 
     private final Config systemConfig;
     private final EcsClientFactory ecsClientFactory;
@@ -107,11 +111,12 @@ public class EcsCommandExecutor
             final EcsClientConfig clientConfig = createEcsClientConfig(clusterName, systemConfig, taskConfig); // ConfigException
             try (final EcsClient client = ecsClientFactory.createClient(clientConfig)) { // ConfigException
                 final TaskDefinition td = findTaskDefinition(commandContext, client, taskConfig); // ConfigException
-                final Optional<ObjectNode> awsLogs = getAwsLogsConfiguration(td); // Nullable, ConfigException
                 // When RuntimeException is thrown by submitTask method, it will be handled and retried by BaseOperator, which is one of base
                 // classes of operator implementation.
                 final Task runTask = submitTask(commandContext, commandRequest, client, td); // ConfigException, RuntimeException
-                final ObjectNode currentStatus = createCurrentStatus(commandContext, commandRequest, clientConfig, runTask, awsLogs);
+                final Optional<ObjectNode> awsLogs = getAwsLogsConfiguration(td, runTask.getTaskArn()); // Nullable, ConfigException
+
+                final ObjectNode currentStatus = createCurrentStatus(commandRequest, clientConfig, runTask, awsLogs);
                 return EcsCommandStatus.of(false, currentStatus);
             }
         }
@@ -209,7 +214,7 @@ public class EcsCommandExecutor
         return null;
     }
 
-    protected Optional<ObjectNode> getAwsLogsConfiguration(final TaskDefinition td)
+    protected Optional<ObjectNode> getAwsLogsConfiguration(final TaskDefinition td, final String taskArn)
             throws ConfigException
     {
         // Assume that a single container will run in the task.
@@ -219,9 +224,13 @@ public class EcsCommandExecutor
         final Optional<ObjectNode> awsLogs;
         if (logDriver.equals("awslogs")) {
             final ObjectNode logs = JsonNodeFactory.instance.objectNode();
-            for (final Map.Entry<String, String> e : logConfig.getOptions().entrySet()) {
-                logs.put(e.getKey(), e.getValue());
-            }
+            final String streamPrefix = logConfig.getOptions().get("awslogs-stream-prefix");
+            final String containerDefinitionName = td.getContainerDefinitions().get(0).getName();
+            final String taskArnPostfix = taskArn.substring(taskArn.lastIndexOf('/') + 1);
+            final String awsLogsStream = String.format(Locale.ENGLISH, "%s/%s/%s", streamPrefix, containerDefinitionName, taskArnPostfix);
+            logs.put("awslogs-group", logConfig.getOptions().get("awslogs-group"));
+            logs.put("awslogs-stream", awsLogsStream);
+
             awsLogs = Optional.of(logs);
         }
         else {
@@ -232,7 +241,6 @@ public class EcsCommandExecutor
     }
 
     protected ObjectNode createCurrentStatus(
-            final CommandContext commandContext,
             final CommandRequest commandRequest,
             final EcsClientConfig clientConfig,
             final Task runTask,
@@ -271,6 +279,36 @@ public class EcsCommandExecutor
             final ObjectNode previousStatus)
             throws IOException
     {
+        ObjectNode previousExecutorStatus = (ObjectNode) previousStatus.get("executor_state");
+        ObjectNode nextExecutorStatus;
+
+        // To fetch log until all logs is written in CloudWatch, it should wait until getting finish marker in end of task.
+        // (finished previous poll once considering risk of crushing while running previous actual poll.)
+        final Optional<Long> taskFinishedAt = !previousStatus.has("task_finished_at") ?
+                Optional.absent() : Optional.of(previousStatus.get("task_finished_at").asLong());
+        if (taskFinishedAt.isPresent()) {
+            long timeout = taskFinishedAt.get() + 60;
+            do {
+                previousExecutorStatus = fetchLogEvents(client, previousStatus, previousExecutorStatus);
+                if (previousExecutorStatus.get("logging_finished_at") != null) {
+                    break;
+                }
+            } while (Instant.now().getEpochSecond() < timeout);
+
+            final String outputArchivePathName = "archive-output.tar.gz";
+            final String outputArchiveKey = createStorageKey(commandContext.getTaskRequest(), outputArchivePathName); // url format
+            // Download output config archive
+            final TemporalProjectArchiveStorage temporalStorage = createTemporalProjectArchiveStorage(commandContext.getTaskRequest().getConfig());
+            try (final InputStream in = temporalStorage.getContentInputStream(outputArchiveKey)) {
+                ProjectArchives.extractTarArchive(commandContext.getLocalProjectPath(), in); // IOException
+            }
+
+            final ObjectNode nextStatus = previousStatus.deepCopy();
+            nextStatus.set("executor_state", previousExecutorStatus);
+
+            return EcsCommandStatus.of(true, nextStatus);
+        }
+
         final String cluster = previousStatus.get("cluster_name").asText();
         final String taskArn = previousStatus.get("task_arn").asText();
         final Task task;
@@ -287,14 +325,12 @@ public class EcsCommandExecutor
         }
 
         final EcsTaskStatus taskStatus = EcsTaskStatus.of(task.getLastStatus());
-        final ObjectNode previousExecutorStatus = (ObjectNode) previousStatus.get("executor_state");
-        final ObjectNode nextExecutorStatus;
         // If the container doesn't start yet, it cannot extract any log messages from the container.
         if (taskStatus.isSameOrAfter(EcsTaskStatus.RUNNING)) {
             // if previous status has 'awslogs' log driver configuration, it tries to fetch log events by that.
             // Otherwise, it skips fetching logs.
             if (!previousStatus.get("awslogs").isNull()) { // awslogs?
-                nextExecutorStatus = fetchLogEvents(client, task, previousStatus, previousExecutorStatus);
+                nextExecutorStatus = fetchLogEvents(client, previousStatus, previousExecutorStatus);
             }
             else {
                 nextExecutorStatus = previousExecutorStatus.deepCopy();
@@ -309,17 +345,11 @@ public class EcsCommandExecutor
 
         final ObjectNode nextStatus = previousStatus.deepCopy();
         nextStatus.set("executor_state", nextExecutorStatus);
-        final boolean isFinished;
-        if (isFinished = taskStatus.isFinished()) {
-            final String outputArchivePathName = "archive-output.tar.gz";
-            final String outputArchiveKey = createStorageKey(commandContext.getTaskRequest(), outputArchivePathName); // url format
 
-            // Download output config archive
-            final TemporalProjectArchiveStorage temporalStorage = createTemporalProjectArchiveStorage(commandContext.getTaskRequest().getConfig());
-            try (final InputStream in = temporalStorage.getContentInputStream(outputArchiveKey)) {
-                ProjectArchives.extractTarArchive(commandContext.getLocalProjectPath(), in); // IOException
-            }
-
+        if (taskStatus.isFinished()) {
+            // To fetch log until all logs is written in CloudWatch,
+            // finish this poll once and wait finish marker in head of this method in next poll, considering risk of crushing in this poll.
+            nextStatus.put("task_finished_at", Instant.now().getEpochSecond());
             // Set exit code of container finished to nextStatus
             nextStatus.put("status_code", task.getContainers().get(0).getExitCode());
         }
@@ -337,19 +367,60 @@ public class EcsCommandExecutor
             // Throw exception to stop the task as failure
             throw new TaskExecutionException(message);
         }
-        return EcsCommandStatus.of(isFinished, nextStatus);
+        // always return false to check if all logs are fetched. (return in head of this method after checking finish marker.)
+        return EcsCommandStatus.of(false, nextStatus);
+    }
+
+    @VisibleForTesting
+    void waitWithRandomJitter(long baseWaitSecs, long baseJitterSecs)
+    {
+        try {
+            long jitterSecs = (long) (baseJitterSecs * Math.random());
+            Thread.sleep((baseWaitSecs + jitterSecs) * 1000);
+        }
+        catch (InterruptedException ex) {
+            // Nothing to do
+        }
+    }
+
+    /**
+     * Catch ThrottlingException of AWSLogs.getLogEvents() and retry with random jitter.
+     * @param client
+     * @param previousStatus
+     * @param previousToken
+     * @return
+     */
+    GetLogEventsResult getLogWithRetry(final EcsClient client, final ObjectNode previousStatus, final Optional<String> previousToken)
+    {
+        final int maxRetry = 60;
+        final long baseJitterSecs = 10; // 0.0 <= jitterSecs < 10.0
+        final int maxBaseWaitSecs = 50; // maxBaseWaitSecs + jitter < 60
+        for (int i = 0; i < maxRetry; i++) {
+            try {
+                waitWithRandomJitter(10*i > maxBaseWaitSecs? maxBaseWaitSecs: 10*i, baseJitterSecs);
+                return client.getLog(toLogGroupName(previousStatus), toLogStreamName(previousStatus), previousToken);
+            }
+            catch (AWSLogsException ex) {
+                if ("ThrottlingException".equals(ex.getErrorCode())) {
+                    logger.debug("Rate exceed in AWSLogs.getLogEvents: {}. Will be retried.", ex.toString());
+                }
+                else {
+                    throw new RuntimeException("Unknown AWSLogsException happened.", ex);
+                }
+            }
+        }
+        logger.error("Failed to call EcsClient.getLog() after Retried {} times", maxRetry);
+        throw new RuntimeException("Failed to call EcsClient.getLog()");
     }
 
     ObjectNode fetchLogEvents(final EcsClient client,
-            final Task task,
             final ObjectNode previousStatus,
             final ObjectNode previousExecutorStatus)
             throws IOException
     {
-        final TaskDefinition td = client.getTaskDefinition(task.getTaskDefinitionArn());
         final Optional<String> previousToken = !previousExecutorStatus.has("next_token") ?
                 Optional.absent() : Optional.of(previousExecutorStatus.get("next_token").asText());
-        final GetLogEventsResult result = client.getLog(toLogGroupName(previousStatus), toLogStreamName(td, previousStatus), previousToken);
+        final GetLogEventsResult result = getLogWithRetry(client, previousStatus, previousToken);
         final List<OutputLogEvent> logEvents = result.getEvents();
         final String nextForwardToken = result.getNextForwardToken().substring(2); // trim "f/" prefix of the token
         final String nextBackwardToken = result.getNextBackwardToken().substring(2); // trim "b/" prefix of the token
@@ -361,7 +432,13 @@ public class EcsCommandExecutor
         }
         else {
             for (final OutputLogEvent logEvent : logEvents) {
-                log(logEvent.getMessage() + "\n", clog);
+                String log = logEvent.getMessage();
+                if (log.contains(ECS_END_OF_TASK_LOG_MARK)) {
+                    nextExecutorStatus.put("logging_finished_at", Instant.now().getEpochSecond());
+                }
+                else {
+                    log(log + "\n", clog);
+                }
             }
             nextExecutorStatus.set("next_token", JsonNodeFactory.instance.textNode(nextForwardToken));
         }
@@ -373,14 +450,9 @@ public class EcsCommandExecutor
         return previousStatus.get("awslogs").get("awslogs-group").asText();
     }
 
-    private static String toLogStreamName(final TaskDefinition td, final ObjectNode previousStatus)
+    private static String toLogStreamName(final ObjectNode previousStatus)
     {
-        final JsonNode logConfig = previousStatus.get("awslogs");
-        final String streamPrefix = logConfig.get("awslogs-stream-prefix").asText();
-        final String containerDefinitionName = td.getContainerDefinitions().get(0).getName();
-        final String taskArn = previousStatus.get("task_arn").asText();
-        final String taskArnPostfix = taskArn.substring(taskArn.lastIndexOf('/') + 1);
-        return String.format(Locale.ENGLISH, "%s/%s/%s", streamPrefix, containerDefinitionName, taskArnPostfix);
+        return previousStatus.get("awslogs").get("awslogs-stream").asText();
     }
 
     private boolean isRunningLongerThanTTL(final ObjectNode previousStatus)
@@ -618,6 +690,7 @@ public class EcsCommandExecutor
         }
         bashArguments.add(s("tar -zcf %s  --exclude %s --exclude %s .digdag/tmp/", outputProjectArchivePathName, relativeProjectArchivePath.toString(), outputProjectArchivePathName));
         bashArguments.add(s("curl -s -X PUT -T %s -L \"%s\"", outputProjectArchivePathName, outputProjectArchiveDirectUploadUrl));
+        bashArguments.add(s("echo \"%s\"", ECS_END_OF_TASK_LOG_MARK));
         bashArguments.add(s("exit $exit_code"));
 
         final List<String> bashCommand = ImmutableList.<String>builder()
