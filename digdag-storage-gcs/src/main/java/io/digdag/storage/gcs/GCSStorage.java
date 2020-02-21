@@ -144,7 +144,7 @@ public class GCSStorage
     @Override
     public Optional<DirectDownloadHandle> getDirectDownloadHandle(String object)
     {
-        final long secondsToExpire = config.get("direct_download_expiration", Long.class, 10L*60);
+        final long secondsToExpire = getDirectDownloadExpiration();
 
         BlobInfo blobInfo = BlobInfo.newBuilder(bucket, object).build();
         URL signedUrl = this.storage.signUrl(blobInfo, secondsToExpire, TimeUnit.SECONDS, Storage.SignUrlOption.httpMethod(HttpMethod.GET), Storage.SignUrlOption.withV4Signature());
@@ -156,13 +156,25 @@ public class GCSStorage
     @Override
     public Optional<DirectUploadHandle> getDirectUploadHandle(String object)
     {
-        final long secondsToExpire = config.get("direct_upload_expiration", Long.class, 10L*60);
+        final long secondsToExpire = getDirectUploadExpiration();
 
         BlobInfo blobInfo = BlobInfo.newBuilder(bucket, object).build();
         URL signedUrl = this.storage.signUrl(blobInfo, secondsToExpire, TimeUnit.SECONDS, Storage.SignUrlOption.httpMethod(HttpMethod.PUT), Storage.SignUrlOption.withV4Signature());
         String url = signedUrl.toString();
 
         return Optional.of(DirectUploadHandle.of(url));
+    }
+
+    @Override
+    public Long getDirectDownloadExpiration()
+    {
+        return config.get("direct_download_expiration", Long.class, 10L*60);
+    }
+
+    @Override
+    public Long getDirectUploadExpiration()
+    {
+        return config.get("direct_upload_expiration", Long.class, 10L*60);
     }
 
     private <T> T getWithRetry(String message, Callable<T> callable)
