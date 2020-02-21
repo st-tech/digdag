@@ -258,7 +258,7 @@ public class KubernetesCommandExecutor
             log(logMessage, clog);
             nextExecutorState.set("log_offset", FACTORY.numberNode(offset + logMessage.length())); // update log_offset
         }
-        else if(isWaitLongerThanInConfigStorageExpiration(previousStatusJson)){
+        else if(isWaitingLongerThanInConfigStorageExpiration(previousStatusJson)){
             // Throw error because inTemporalConfigStorage expires
             TaskRequest request = context.getTaskRequest();
             long attemptId = request.getAttemptId();
@@ -327,7 +327,7 @@ public class KubernetesCommandExecutor
         return ImmutableList.of();
     }
 
-    private boolean isWaitLongerThanInConfigStorageExpiration(final ObjectNode previousStatusJson)
+    private boolean isWaitingLongerThanInConfigStorageExpiration(final ObjectNode previousStatusJson)
     {
         long creationTimestamp = previousStatusJson.get("pod_creation_timestamp").asLong();
         long inTemporalConfigStorageExpiration = previousStatusJson.get("in_temporal_config_storage_expiration").asLong();
