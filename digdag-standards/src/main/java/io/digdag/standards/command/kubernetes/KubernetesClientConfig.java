@@ -19,42 +19,50 @@ public class KubernetesClientConfig
             final Config systemConfig,
             final Config requestConfig)
     {
-        if (requestConfig.has("kubernetes")) {
-            // from task request config
-            return KubernetesClientConfig.createFromTaskRequestConfig(name, requestConfig.getNested("kubernetes"));
-        }
-        else {
-            // from system config
-            return KubernetesClientConfig.createFromSystemConfig(name, systemConfig);
-        }
-    }
 
-    private static KubernetesClientConfig createFromTaskRequestConfig(final Optional<String> name,
-            final Config config)
-    {
-        // TODO
-        // We'd better to customize cluster config by task request config??
-        throw new UnsupportedOperationException("Not support yet");
-    }
-
-    @VisibleForTesting
-    static KubernetesClientConfig createFromSystemConfig(final Optional<String> name,
-            final io.digdag.client.config.Config systemConfig)
-    {
-        final String clusterName;
-        if (!name.isPresent()) {
-            if (!systemConfig.get("agent.command_executor.type", String.class, "").equals("kubernetes")) {
-                throw new ConfigException("agent.command_executor.type: is not 'kubernetes'");
-            }
-            clusterName = systemConfig.get(KUBERNETES_CLIENT_PARAMS_PREFIX + "name", String.class);
-        }
-        else {
+        String clusterName = null;
+        if (name.isPresent()) {
             clusterName = name.get();
         }
-        final String keyPrefix = KUBERNETES_CLIENT_PARAMS_PREFIX + clusterName + ".";
-        final Config extracted = StorageManager.extractKeyPrefix(systemConfig, keyPrefix);
-        if (extracted.has("kube_config_path")) {
-            String kubeConfigPath = extracted.get("kube_config_path", String.class);
+
+        Config extractedSystemConfig = null;
+        if (systemConfig != null && systemConfig.get("agent.command_executor.type", String.class, "").equals("kubernetes")) {
+            if (clusterName == null) {
+                clusterName = systemConfig.get(KUBERNETES_CLIENT_PARAMS_PREFIX + "name", String.class); // ConfigException
+            }
+            final String keyPrefix = KUBERNETES_CLIENT_PARAMS_PREFIX + clusterName + ".";
+            extractedSystemConfig = StorageManager.extractKeyPrefix(systemConfig, keyPrefix);
+        }
+
+        Config extractedRequestConfig = null;
+        if (requestConfig != null && requestConfig.has("kubernetes")) {
+            if (clusterName == null) {
+                clusterName = requestConfig.get("name", String.class); // ConfigException
+            }
+            extractedRequestConfig = requestConfig.getNested("kubernetes");
+        }
+
+        // Create a config that merges RequestConfig with SystemConfig
+        final Config config;
+        if (extractedSystemConfig != null && extractedRequestConfig != null) {
+            config = extractedSystemConfig.merge(extractedRequestConfig);
+
+        } else if (extractedRequestConfig != null) {
+            config = extractedRequestConfig;
+
+        } else if (extractedSystemConfig != null) {
+            config = extractedSystemConfig;
+
+        } else {
+            throw new ConfigException("systemConfig and requestConfig does not exist");
+        }
+
+        return KubernetesClientConfig.createKubeConfig(clusterName, config);
+    }
+
+    private static KubernetesClientConfig createKubeConfig(final String clusterName, final Config config){
+        if (config.has("kube_config_path")) {
+            String kubeConfigPath = config.get("kube_config_path", String.class);
             io.fabric8.kubernetes.client.Config validatedKubeConfig;
             validatedKubeConfig = validateKubeConfig(getKubeConfigFromPath(kubeConfigPath));
             return create(clusterName,
@@ -63,7 +71,7 @@ public class KubernetesClientConfig
                     validatedKubeConfig.getOauthToken(),
                     validatedKubeConfig.getNamespace());
         } else {
-            final Config validatedConfig = validateConfig(extracted);
+            final Config validatedConfig = validateConfig(config);
             return create(clusterName,
                     validatedConfig.get("master", String.class),
                     validatedConfig.get("certs_ca_data", String.class),
