@@ -35,6 +35,8 @@ public abstract class ResumingTask
 
     public abstract Config getError();
 
+    public abstract TaskType getTaskType();
+
     public static ResumingTask of(ArchivedTask source)
     {
         return ImmutableResumingTask.builder()
@@ -48,6 +50,7 @@ public abstract class ResumingTask
             .storeParams(source.getStoreParams())
             .report(source.getReport().or(TaskReport.empty()))
             .error(source.getError())
+            .taskType(source.getTaskType())
             .build();
     }
 }
