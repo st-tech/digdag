@@ -6,6 +6,7 @@ import java.util.Set;
 import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.stream.Collectors;
+
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.*;
@@ -181,6 +182,27 @@ public class TaskControl
             }
             firstTask = false;
         }
+
+        Map<String, Long> taskNameAndIds = tasks.stream()
+            .collect(Collectors.toMap(
+                WorkflowTask::getFullName,
+                task -> indexToId.get(tasks.indexOf(task))
+            ));
+
+        resumingTasks
+            .stream()
+            .filter(resumingTask -> !taskNameAndIds.keySet().contains(resumingTask.getFullName())
+                                    && resumingTask.getFullName().endsWith("^sub"))
+            .forEach(resumingSubtask -> {
+                String parentTaskName = resumingSubtask.getFullName().replaceAll("\\^sub$", "");
+
+                store.addResumedSubtask(attemptId,
+                    taskNameAndIds.get(parentTaskName),
+                    resumingSubtask.getTaskType(),
+                    TaskStateCode.SUCCESS,
+                    (isInitialTask ? TaskStateFlags.empty().withInitialTask() : TaskStateFlags.empty()),
+                    resumingSubtask);
+            });
 
         return rootTaskId;
     }
