@@ -21,6 +21,7 @@ import io.digdag.core.repository.StoredProject;
 import io.digdag.core.repository.StoredRevision;
 import io.digdag.core.repository.WorkflowDefinition;
 import io.digdag.core.session.ResumingTask;
+import io.digdag.core.session.ArchivedTask;
 import io.digdag.core.session.ParameterUpdate;
 import io.digdag.core.session.Session;
 import io.digdag.core.session.SessionAttempt;
@@ -43,6 +44,8 @@ import io.digdag.spi.TaskQueueRequest;
 import io.digdag.spi.TaskConflictException;
 import io.digdag.spi.TaskNotFoundException;
 import io.digdag.spi.metrics.DigdagMetrics;
+import io.digdag.spi.metrics.DigdagMetrics.Category;
+
 import static io.digdag.spi.metrics.DigdagMetrics.Category;
 import io.digdag.util.RetryControl;
 import org.slf4j.Logger;
@@ -269,21 +272,15 @@ public class WorkflowExecutor
 
         TaskConfig.validateAttempt(attempt);
 
-        List<ResumingTask> resumingTasks;
+        List<ArchivedTask> archivedTasks;
         if (ar.getResumingAttemptId().isPresent()) {
-            WorkflowTask root = tasks.get(0);
-            resumingTasks = TaskControl.buildResumingTaskMap(
+            archivedTasks = TaskControl.buildResumingTaskMap(
                     sm.getSessionStore(siteId),
                     ar.getResumingAttemptId().get(),
                     ar.getResumingTasks());
-            for (ResumingTask resumingTask : resumingTasks) {
-                if (resumingTask.getFullName().equals(root.getFullName())) {
-                    throw new IllegalResumeException("Resuming root task is not allowed");
-                }
-            }
         }
         else {
-            resumingTasks = ImmutableList.of();
+            archivedTasks = ImmutableList.of();
         }
 
         StoredSessionAttemptWithSession stored;
@@ -313,7 +310,7 @@ public class WorkflowExecutor
                         StoredSessionAttemptWithSession.of(siteId, storedSession, storedAttempt);
 
                     try {
-                        storeTasks(store, storedAttemptWithSession, tasks, resumingTasks, ar.getSessionMonitors());
+                        storeTasks(store, storedAttemptWithSession, tasks, archivedTasks, ar.getSessionMonitors());
                     }
                     catch (TaskLimitExceededException ex) {
                         throw new WorkflowTaskLimitExceededException(ex);
@@ -348,21 +345,21 @@ public class WorkflowExecutor
             SessionControlStore store,
             StoredSessionAttemptWithSession storedAttempt,
             WorkflowDefinition def,
-            List<ResumingTask> resumingTasks,
+            List<ArchivedTask> archivedTasks,
             List<SessionMonitor> sessionMonitors)
         throws TaskLimitExceededException
     {
         Workflow workflow = compiler.compile(def.getName(), def.getConfig());
         WorkflowTaskList tasks = workflow.getTasks();
 
-        storeTasks(store, storedAttempt, tasks, resumingTasks, sessionMonitors);
+        storeTasks(store, storedAttempt, tasks, archivedTasks, sessionMonitors);
     }
 
     public void storeTasks(
             SessionControlStore store,
             StoredSessionAttemptWithSession storedAttempt,
             WorkflowTaskList tasks,
-            List<ResumingTask> resumingTasks,
+            List<ArchivedTask> archivedTasks,
             List<SessionMonitor> sessionMonitors)
         throws TaskLimitExceededException
     {
@@ -386,7 +383,7 @@ public class WorkflowExecutor
             store.insertRootTask(storedAttempt.getId(), rootTask, (taskStore, storedTaskId) -> {
                 try {
                     TaskControl.addInitialTasksExceptingRootTask(taskStore, storedAttempt.getId(),
-                            storedTaskId, tasks, resumingTasks, limits);
+                            storedTaskId, tasks, archivedTasks, limits);
                 }
                 catch (TaskLimitExceededException ex) {
                     throw new WorkflowTaskLimitExceededException(ex);
@@ -626,6 +623,9 @@ public class WorkflowExecutor
                     )
                     .reduce(anyChanged, (a, b) -> a || b);
             lastParentId = parentIds.get(parentIds.size() - 1);
+            System.out.println("parentIds: " + parentIds);
+            System.out.println("lastParentId: " + lastParentId);
+            System.out.println("anyChanged: " + anyChanged);
         }
         return anyChanged;
     }

@@ -302,17 +302,18 @@ public class AttemptResource
                 .getSessionStore(getSiteId())
                 .getTasksOfAttempt(attemptId);
 
-        List<Long> successTasks = tasks.stream()
-                .filter(task -> task.getState() == TaskStateCode.SUCCESS)
+        List<Long> ids = tasks.stream()
+                .filter(task -> task.getState() != TaskStateCode.BLOCKED)
+                // .filter(task -> task.getState() == TaskStateCode.SUCCESS || task.getState() == TaskStateCode.GROUP_ERROR || task.getState() == TaskStateCode.ERROR || task.getState() == TaskStateCode.CANCELED)
                 .map(task -> {
-                    if (!task.getParentId().isPresent()) {
+                    if (!task.getParentId().isPresent() && task.getState() == TaskStateCode.SUCCESS) {
                         throw new IllegalArgumentException("Resuming successfully completed attempts is not supported");
                     }
                     return task.getId();
                 })
                 .collect(Collectors.toList());
 
-        return ImmutableList.copyOf(successTasks);
+        return ImmutableList.copyOf(ids);
     }
 
     private List<Long> collectResumingTasksForResumeFromMode(long attemptId, String fromTaskPattern)
