@@ -21,6 +21,7 @@ import io.digdag.core.repository.StoredProject;
 import io.digdag.core.repository.StoredRevision;
 import io.digdag.core.repository.WorkflowDefinition;
 import io.digdag.core.session.ResumingTask;
+import io.digdag.core.session.ArchivedTask;
 import io.digdag.core.session.ParameterUpdate;
 import io.digdag.core.session.Session;
 import io.digdag.core.session.SessionAttempt;
@@ -43,6 +44,8 @@ import io.digdag.spi.TaskQueueRequest;
 import io.digdag.spi.TaskConflictException;
 import io.digdag.spi.TaskNotFoundException;
 import io.digdag.spi.metrics.DigdagMetrics;
+import io.digdag.spi.metrics.DigdagMetrics.Category;
+
 import static io.digdag.spi.metrics.DigdagMetrics.Category;
 import io.digdag.util.RetryControl;
 import org.slf4j.Logger;
@@ -269,18 +272,18 @@ public class WorkflowExecutor
 
         TaskConfig.validateAttempt(attempt);
 
-        List<ResumingTask> resumingTasks;
+        List<ArchivedTask> resumingTasks;
         if (ar.getResumingAttemptId().isPresent()) {
             WorkflowTask root = tasks.get(0);
             resumingTasks = TaskControl.buildResumingTaskMap(
                     sm.getSessionStore(siteId),
                     ar.getResumingAttemptId().get(),
                     ar.getResumingTasks());
-            for (ResumingTask resumingTask : resumingTasks) {
-                if (resumingTask.getFullName().equals(root.getFullName())) {
-                    throw new IllegalResumeException("Resuming root task is not allowed");
-                }
-            }
+            // for (ResumingTask resumingTask : resumingTasks) {
+            //     if (resumingTask.getFullName().equals(root.getFullName())) {
+            //         throw new IllegalResumeException("Resuming root task is not allowed");
+            //     }
+            // }
         }
         else {
             resumingTasks = ImmutableList.of();
@@ -348,7 +351,7 @@ public class WorkflowExecutor
             SessionControlStore store,
             StoredSessionAttemptWithSession storedAttempt,
             WorkflowDefinition def,
-            List<ResumingTask> resumingTasks,
+            List<ArchivedTask> resumingTasks,
             List<SessionMonitor> sessionMonitors)
         throws TaskLimitExceededException
     {
@@ -362,7 +365,7 @@ public class WorkflowExecutor
             SessionControlStore store,
             StoredSessionAttemptWithSession storedAttempt,
             WorkflowTaskList tasks,
-            List<ResumingTask> resumingTasks,
+            List<ArchivedTask> resumingTasks,
             List<SessionMonitor> sessionMonitors)
         throws TaskLimitExceededException
     {
@@ -626,6 +629,9 @@ public class WorkflowExecutor
                     )
                     .reduce(anyChanged, (a, b) -> a || b);
             lastParentId = parentIds.get(parentIds.size() - 1);
+            System.out.println("parentIds: " + parentIds);
+            System.out.println("lastParentId: " + lastParentId);
+            System.out.println("anyChanged: " + anyChanged);
         }
         return anyChanged;
     }

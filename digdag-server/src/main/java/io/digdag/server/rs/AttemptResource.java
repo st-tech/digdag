@@ -303,9 +303,15 @@ public class AttemptResource
                 .getTasksOfAttempt(attemptId);
 
         List<Long> successTasks = tasks.stream()
-                .filter(task -> task.getState() == TaskStateCode.SUCCESS)
+                // .filter(task -> task.getState() != TaskStateCode.BLOCKED)
+                .filter(task -> task.getState() == TaskStateCode.SUCCESS || task.getState() == TaskStateCode.GROUP_ERROR || task.getState() == TaskStateCode.ERROR || task.getState() == TaskStateCode.CANCELED)
                 .map(task -> {
-                    if (!task.getParentId().isPresent()) {
+                    System.out.println("===collectResumingTasksForResumeFailedMode===================================");
+                    System.out.println("task.getFullName: " + task.getFullName());
+                    System.out.println("task.getParentId: " + task.getParentId().orNull());
+                    System.out.println("task.getState: " + task.getState());
+                    System.out.println("===collectResumingTasksForResumeFailedMode===================================");
+                    if (!task.getParentId().isPresent() && task.getState() == TaskStateCode.SUCCESS) {
                         throw new IllegalArgumentException("Resuming successfully completed attempts is not supported");
                     }
                     return task.getId();

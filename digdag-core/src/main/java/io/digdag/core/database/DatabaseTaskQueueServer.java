@@ -206,7 +206,7 @@ public class DatabaseTaskQueueServer
         if (fragments.length != 2) {
             throw new IllegalArgumentException("Invalid queue-bound task lock id: " + formatted);
         }
-        return Integer.parseInt(fragments[1]);
+            return Integer.parseInt(fragments[1]);
     }
 
     @Override
@@ -293,7 +293,7 @@ public class DatabaseTaskQueueServer
                 .bind("agentId", agentId)
                 .bind("queueId", queueId)
                 .bind("siteId", siteId)
-                .execute();
+                    .execute();
         }) > 0;
     }
 

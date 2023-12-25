@@ -35,7 +35,9 @@ public abstract class ResumingTask
 
     public abstract Config getError();
 
-    public abstract TaskType getTaskType();
+    // public abstract TaskType getTaskType();
+
+    // public abstract TaskStateCode getState();
 
     public static ResumingTask of(ArchivedTask source)
     {
@@ -50,7 +52,8 @@ public abstract class ResumingTask
             .storeParams(source.getStoreParams())
             .report(source.getReport().or(TaskReport.empty()))
             .error(source.getError())
-            .taskType(source.getTaskType())
+            // .taskType(source.getTaskType())
+            // .state(source.getState())
             .build();
     }
 }
