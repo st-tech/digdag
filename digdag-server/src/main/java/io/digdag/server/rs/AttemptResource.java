@@ -303,8 +303,8 @@ public class AttemptResource
                 .getTasksOfAttempt(attemptId);
 
         List<Long> ids = tasks.stream()
-                .filter(task -> task.getState() != TaskStateCode.BLOCKED)
-                // .filter(task -> task.getState() == TaskStateCode.SUCCESS || task.getState() == TaskStateCode.GROUP_ERROR || task.getState() == TaskStateCode.ERROR || task.getState() == TaskStateCode.CANCELED)
+                // .filter(task -> task.getState() != TaskStateCode.BLOCKED)
+                .filter(task -> task.getState() == TaskStateCode.SUCCESS || task.getState() == TaskStateCode.GROUP_ERROR || task.getState() == TaskStateCode.ERROR || task.getState() == TaskStateCode.CANCELED)
                 .map(task -> {
                     if (!task.getParentId().isPresent() && task.getState() == TaskStateCode.SUCCESS) {
                         throw new IllegalArgumentException("Resuming successfully completed attempts is not supported");

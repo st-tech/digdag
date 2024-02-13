@@ -215,7 +215,7 @@ public class TaskControl
                 .or(parentTaskId);
             long id;
 
-            ArchivedTask archivedTask = archivedTasks.stream().filter(t -> t.getFullName() == wt.getFullName()).findFirst().orElse(null);
+            ArchivedTask archivedTask = archivedTasks.stream().filter(t -> t.getFullName().equals(wt.getFullName())).findFirst().orElse(null);
             if (archivedTask == null) {
                 Task task = Task.taskBuilder()
                     .parentId(Optional.of(parentId))
@@ -234,6 +234,7 @@ public class TaskControl
                         state = TaskStateCode.SUCCESS;
                         break;
                     case ERROR:
+                    case CANCELED:
                         state = TaskStateCode.BLOCKED;
                         break;
                     default:
@@ -269,7 +270,6 @@ public class TaskControl
             .stream()
             .filter(archivedTask -> !taskNameAndIds.keySet().contains(archivedTask.getFullName())
                                      && archivedTask.getFullName().contains("^sub"))
-            // .sorted(Comparator.comparingInt((t) -> t.getFullName().chars().filter(c -> c == '+' || c == '^').count()))
             .sorted(Comparator.comparingInt((t) -> (int) t.getId()))
             .forEach(archivedSubtask -> {
                 String parentTaskName = archivedSubtask.getFullName().replaceAll("(\\^sub|\\+)[^\\^+]*$", "");
@@ -286,10 +286,6 @@ public class TaskControl
                     default:
                         state = TaskStateCode.PLANNED;
                         break;
-                    // case GROUP_ERROR:
-                    //     state = TaskStateCode.PLANNED;
-                    //     break;
-
                 }
 
                 Long id = store.addResumedSubtask(attemptId,
@@ -301,10 +297,9 @@ public class TaskControl
 
                 taskNameAndIds.put(archivedSubtask.getFullName(), id);
 
-                List<Long> upstreamIds = new ArrayList<>();
                 archivedTasks.stream().filter(t -> t.getId() == archivedSubtask.getId() - 1).findFirst().ifPresent((upstreamTask) -> {
-                    String upstreamTaskName = upstreamTask.getFullName();
-                    Long upstreamId = taskNameAndIds.get(upstreamTaskName);
+                    List<Long> upstreamIds = new ArrayList<>();
+                    Long upstreamId = taskNameAndIds.get(upstreamTask.getFullName());
                     upstreamIds.add(upstreamId);
                     store.addDependencies(id, upstreamIds);
                 });;
