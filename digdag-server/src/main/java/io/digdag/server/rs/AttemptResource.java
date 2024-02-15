@@ -2,6 +2,7 @@ package io.digdag.server.rs;
 
 import java.util.List;
 import java.util.Set;
+import java.util.Arrays;
 import java.util.HashSet;
 import java.util.stream.Collectors;
 import javax.ws.rs.Consumes;
@@ -298,21 +299,24 @@ public class AttemptResource
 
     private List<Long> collectResumingTasksForResumeFailedMode(long attemptId)
     {
+        TaskStateCode[] statusArr = {TaskStateCode.SUCCESS, TaskStateCode.GROUP_ERROR, TaskStateCode.ERROR, TaskStateCode.CANCELED};
+        List<TaskStateCode> statuses = Arrays.asList(statusArr);
+
         List<ArchivedTask> tasks = sm
                 .getSessionStore(getSiteId())
                 .getTasksOfAttempt(attemptId);
 
-        List<Long> successTasks = tasks.stream()
-                .filter(task -> task.getState() == TaskStateCode.SUCCESS)
+        List<Long> ids = tasks.stream()
+                .filter(t-> statuses.contains(t.getState()))
                 .map(task -> {
-                    if (!task.getParentId().isPresent()) {
+                    if (!task.getParentId().isPresent() && task.getState() == TaskStateCode.SUCCESS) {
                         throw new IllegalArgumentException("Resuming successfully completed attempts is not supported");
                     }
                     return task.getId();
                 })
                 .collect(Collectors.toList());
 
-        return ImmutableList.copyOf(successTasks);
+        return ImmutableList.copyOf(ids);
     }
 
     private List<Long> collectResumingTasksForResumeFromMode(long attemptId, String fromTaskPattern)
