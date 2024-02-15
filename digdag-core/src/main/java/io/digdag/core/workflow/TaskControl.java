@@ -5,6 +5,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.HashSet;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.stream.Collectors;
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
@@ -15,11 +16,13 @@ import io.digdag.core.repository.ResourceNotFoundException;
 import io.digdag.core.session.StoredTask;
 import io.digdag.core.session.SessionStore;
 import io.digdag.core.session.ArchivedTask;
+import io.digdag.core.session.ImmutableResumingTask;
 import io.digdag.core.session.ResumingTask;
 import io.digdag.core.session.Task;
 import io.digdag.core.session.TaskControlStore;
 import io.digdag.core.session.TaskStateCode;
 import io.digdag.core.session.TaskStateFlags;
+import io.digdag.spi.TaskReport;
 import io.digdag.spi.TaskResult;
 import io.digdag.client.config.Config;
 
@@ -181,6 +184,133 @@ public class TaskControl
             }
             firstTask = false;
         }
+
+        return rootTaskId;
+    }
+
+    private static long addInitialTasks(TaskControlStore store, long attemptId, long rootTaskId,
+            WorkflowTaskList workflowTasks, List<ArchivedTask> archivedTasks)
+    {
+        List<Long> indexToId = new ArrayList<>();
+        indexToId.add(rootTaskId);
+
+        workflowTasks.stream()
+            .skip(1) // skip the root task
+            .forEach(workflowTask -> {
+                long id;
+                long parentId = workflowTask.getParentIndex()
+                    .transform(index -> indexToId.get(index))
+                    .or(rootTaskId);
+
+                ArchivedTask archivedTask = archivedTasks.stream()
+                    .filter(t -> t.getFullName().equals(workflowTask.getFullName()))
+                    .findFirst()
+                    .orElse(null);
+
+                if (archivedTask == null) {
+                    Task task = Task.taskBuilder()
+                        .parentId(Optional.of(parentId))
+                        .fullName(workflowTask.getFullName())
+                        .config(TaskConfig.validate(workflowTask.getConfig()))
+                        .taskType(workflowTask.getTaskType())
+                        .state(TaskStateCode.BLOCKED)
+                        .stateFlags(TaskStateFlags.empty().withInitialTask())
+                        .build();
+
+                    id = store.addSubtask(attemptId, task);
+                } else {
+                    TaskStateCode state;
+                    switch(archivedTask.getState()) {
+                        case SUCCESS:
+                            state = TaskStateCode.SUCCESS;
+                            break;
+                        case ERROR:
+                        case CANCELED:
+                            state = TaskStateCode.BLOCKED;
+                            break;
+                        default:
+                            state = TaskStateCode.PLANNED;
+                            break;
+                    }
+
+                    ResumingTask resumingTask = ImmutableResumingTask.builder()
+                        .sourceTaskId(archivedTask.getId())
+                        .fullName(archivedTask.getFullName())
+                        .config(TaskConfig.validate(workflowTask.getConfig()))
+                        .updatedAt(archivedTask.getUpdatedAt())
+                        .subtaskConfig(archivedTask.getSubtaskConfig())
+                        .exportParams(archivedTask.getExportParams())
+                        .resetStoreParams(archivedTask.getResetStoreParams())
+                        .storeParams(archivedTask.getStoreParams())
+                        .report(archivedTask.getReport().or(TaskReport.empty()))
+                        .error(archivedTask.getError())
+                        .build();
+
+                    id = store.addResumedSubtask(attemptId,
+                        parentId,
+                        workflowTask.getTaskType(),
+                        state,
+                        TaskStateFlags.empty().withInitialTask(),
+                        resumingTask);
+                }
+
+                indexToId.add(id);
+
+                if (!workflowTask.getUpstreamIndexes().isEmpty()) {
+                    store.addDependencies(
+                        id,
+                        workflowTask.getUpstreamIndexes()
+                            .stream()
+                            .map(index -> indexToId.get(index))
+                            .collect(Collectors.toList())
+                    );
+                }
+            });
+
+        Map<String, Long> taskNameAndIds = workflowTasks.stream()
+            .collect(Collectors.toMap(WorkflowTask::getFullName, task -> indexToId.get(workflowTasks.indexOf(task))));
+
+        archivedTasks.stream()
+            .filter(archivedTask -> !taskNameAndIds.keySet().contains(archivedTask.getFullName())
+                                    && archivedTask.getFullName().contains("^sub"))
+            .sorted(Comparator.comparingInt((t) -> (int) t.getId()))
+            .forEach(archivedSubtask -> {
+                String parentTaskName = archivedSubtask.getFullName().replaceAll("(\\^sub|\\+)[^\\^+]*$", "");
+                Long parentId = taskNameAndIds.get(parentTaskName);
+
+                TaskStateCode state;
+                switch(archivedSubtask.getState()) {
+                    case SUCCESS:
+                        state = TaskStateCode.SUCCESS;
+                        break;
+                    case ERROR:
+                    case CANCELED:
+                        state = TaskStateCode.BLOCKED;
+                        break;
+                    default:
+                        state = TaskStateCode.PLANNED;
+                        break;
+                }
+
+                Long id = store.addResumedSubtask(attemptId,
+                    parentId,
+                    archivedSubtask.getTaskType(),
+                    state,
+                    TaskStateFlags.empty().withInitialTask(),
+                    ResumingTask.of(archivedSubtask));
+
+                taskNameAndIds.put(archivedSubtask.getFullName(), id);
+
+                archivedTasks.stream()
+                    .filter(t -> t.getId() == archivedSubtask.getId() - 1)
+                    .findFirst()
+                    .ifPresent((upstreamArchivedTask) -> {
+                        List<Long> upstreamIds = new ArrayList<>();
+                        Long upstreamId = taskNameAndIds.get(upstreamArchivedTask.getFullName());
+                        upstreamIds.add(upstreamId);
+                        store.addDependencies(id, upstreamIds);
+                    });;
+           });
 
         return rootTaskId;
     }
