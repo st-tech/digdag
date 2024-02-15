@@ -7,6 +7,7 @@ import java.util.HashSet;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.stream.Collectors;
+
 import com.google.common.base.Optional;
 import com.google.common.base.Strings;
 import com.google.common.collect.*;
@@ -58,14 +59,12 @@ public class TaskControl
 
     public static long addInitialTasksExceptingRootTask(
             TaskControlStore store, long attemptId, long rootTaskId,
-            WorkflowTaskList tasks, List<ResumingTask> resumingTasks, Limits limits)
+            WorkflowTaskList tasks, List<ArchivedTask> archivedTasks, Limits limits)
         throws TaskLimitExceededException
     {
         checkTaskLimit(store, attemptId, tasks, limits);
-        long taskId = addTasks(store, attemptId, rootTaskId,
-                tasks, ImmutableList.of(),
-                false, true, true,
-                resumingTasks);
+        long taskId = addInitialTasks(store, attemptId, rootTaskId, tasks, archivedTasks);
+        List<ResumingTask> resumingTasks = archivedTasks.stream().map(ResumingTask::of).collect(Collectors.toList());
         addResumingTasks(store, attemptId, resumingTasks);
         return taskId;
     }
@@ -337,28 +336,24 @@ public class TaskControl
         return store.getResumingTasksByNamePrefix(attemptId, commonPrefix);
     }
 
-    static List<ResumingTask> buildResumingTaskMap(SessionStore store, long attemptId, List<Long> resumingTaskIds)
+    static List<ArchivedTask> buildResumingTaskMap(SessionStore store, long attemptId, List<Long> resumingTaskIds)
             throws ResourceNotFoundException
     {
         Set<Long> idSet = new HashSet<>(resumingTaskIds);
-        List<ResumingTask> resumingTasks = store
+        List<ArchivedTask> archivedTasks = store
             .getTasksOfAttempt(attemptId)
             .stream()
             .filter(archived -> {
                 if (idSet.remove(archived.getId())) {
-                    if (archived.getState() != TaskStateCode.SUCCESS) {
-                        throw new IllegalResumeException("Resuming non-successful tasks is not allowed: task_id=" + archived.getId());
-                    }
                     return true;
                 }
                 return false;
             })
-            .map(archived -> ResumingTask.of(archived))
             .collect(Collectors.toList());
         if (!idSet.isEmpty()) {
             throw new ResourceNotFoundException("Resuming tasks are not the members of resuming attempt: id list=" + idSet);
         }
-        return resumingTasks;
+        return archivedTasks;
     }
 
     ////
