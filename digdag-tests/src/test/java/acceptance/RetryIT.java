@@ -179,6 +179,58 @@ public class RetryIT
         assertThat(retry5Attempt.getParams().get("key", String.class), is("value"));
     }
 
+    @Test
+    public void testRetryWithStoredParams()
+            throws Exception
+    {
+        DigdagClient client = DigdagClient.builder()
+                .host(server.host())
+                .port(server.port())
+                .build();
+
+        // Push the project
+        pushRevision("acceptance/retry/retry-4.dig", "retry");
+
+        // Start the workflow
+        Id originalAttemptId;
+        {
+            CommandStatus startStatus = main("start",
+                    "-c", config.toString(),
+                    "-e", server.endpoint(),
+                    "retry", "retry",
+                    "--session", "now");
+            assertThat(startStatus.errUtf8(), startStatus.code(), is(0));
+            originalAttemptId = getAttemptId(startStatus);
+        }
+
+        // Wait for the attempt to fail
+        assertThat(joinAttempt(client, originalAttemptId).getSuccess(), is(false));
+
+        assertOutputExists("4-1", true);
+
+        // Push a new revision
+        pushRevision("acceptance/retry/retry-5.dig", "retry");
+
+        // Retry with the latest fixed revision & resume from
+        Id retry2;
+        {
+            CommandStatus retryStatus = main("retry",
+                    "-c", config.toString(),
+                    "-e", server.endpoint(),
+                    "--latest-revision",
+                    "--resume-from", "+step2+b",
+                    String.valueOf(originalAttemptId));
+            assertThat(retryStatus.errUtf8(), retryStatus.code(), is(0));
+            retry2 = getAttemptId(retryStatus);
+        }
+
+        // Wait for the attempt to success
+        assertThat(joinAttempt(client, retry2).getSuccess(), is(true));
+
+        assertOutputExists("5-1", false);  // skipped
+        assertOutputContents("5-2b", "stored_value");
+    }
+
     private void pushRevision(String resourceName, String workflowName)
             throws IOException
     {
@@ -211,6 +263,14 @@ public class RetryIT
     private void assertOutputExists(String name, boolean exists)
     {
         assertThat(Files.exists(root().resolve(name + ".out")), is(exists));
+    }
+
+    private void assertOutputContents(String name, String contents)
+            throws IOException
+    {
+        assertThat(
+                new String(Files.readAllBytes(root().resolve(name + ".out")), UTF_8).trim(),
+                is(contents));
     }
 
     private Path root()

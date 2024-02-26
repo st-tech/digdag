@@ -1,0 +1,10 @@
++step1:
+  sh>: touch ${outdir}/4-1.out
++step2:
+  +a:
+    if>: true
+    _do:
+      py>: helper.store_v
+      value: stored_value
+  +b:
+    fail>: step2b fail
