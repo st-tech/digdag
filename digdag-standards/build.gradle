@@ -54,13 +54,13 @@ dependencies {
     // dependency conflict resolution
     compile 'joda-time:joda-time:2.9.4'
 
-    compile ('com.google.auth:google-auth-library-credentials:0.18.0') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
-    compile ('com.google.auth:google-auth-library-oauth2-http:0.18.0') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
-    compile ('com.google.http-client:google-http-client:1.24.1') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
-    compile ('com.google.http-client:google-http-client-jackson2:1.24.1') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
-    compile ('com.google.oauth-client:google-oauth-client:1.22.0') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
+    compile ('com.google.auth:google-auth-library-credentials:1.23.0') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
+    compile ('com.google.auth:google-auth-library-oauth2-http:1.23.0') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
+    compile ('com.google.http-client:google-http-client:1.44.1') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
+    compile ('com.google.http-client:google-http-client-jackson2:1.44.1') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
+    compile ('com.google.oauth-client:google-oauth-client:1.35.0') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
 
-    compile ('com.google.cloud:google-cloud-core:1.94.0') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
+    compile ('com.google.cloud:google-cloud-core:1.96.0') { exclude group: 'com.google.guava', module: 'guava-jdk5' }
 
     compile 'com.google.code.findbugs:jsr305:3.0.2'
 
